@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -L \"http://localhost:8082/client-dashboard\")"
+    ]
+  }
+}
