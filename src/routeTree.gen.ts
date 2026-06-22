@@ -10,9 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ReviewsRouteImport } from './routes/reviews'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ProVerificationRouteImport } from './routes/pro-verification'
 import { Route as ProLoginSignupRouteImport } from './routes/pro-login-signup'
 import { Route as ProDashboardRouteImport } from './routes/pro-dashboard'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as ClientLoginSignupRouteImport } from './routes/client-login-signup'
 import { Route as ClientDashboardRouteImport } from './routes/client-dashboard'
 import { Route as AdminLoginRouteImport } from './routes/admin-login'
@@ -36,6 +38,11 @@ const ReviewsRoute = ReviewsRouteImport.update({
   path: '/reviews',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProVerificationRoute = ProVerificationRouteImport.update({
   id: '/pro-verification',
   path: '/pro-verification',
@@ -49,6 +56,11 @@ const ProLoginSignupRoute = ProLoginSignupRouteImport.update({
 const ProDashboardRoute = ProDashboardRouteImport.update({
   id: '/pro-dashboard',
   path: '/pro-dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientLoginSignupRoute = ClientLoginSignupRouteImport.update({
@@ -148,9 +160,11 @@ export interface FileRoutesByFullPath {
   '/admin-login': typeof AdminLoginRoute
   '/client-dashboard': typeof ClientDashboardRouteWithChildren
   '/client-login-signup': typeof ClientLoginSignupRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
   '/pro-verification': typeof ProVerificationRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/reviews': typeof ReviewsRoute
   '/client-dashboard/bookings': typeof ClientDashboardBookingsRoute
   '/client-dashboard/checkout': typeof ClientDashboardCheckoutRoute
@@ -170,9 +184,11 @@ export interface FileRoutesByTo {
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admin-login': typeof AdminLoginRoute
   '/client-login-signup': typeof ClientLoginSignupRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
   '/pro-verification': typeof ProVerificationRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/reviews': typeof ReviewsRoute
   '/client-dashboard/bookings': typeof ClientDashboardBookingsRoute
   '/client-dashboard/checkout': typeof ClientDashboardCheckoutRoute
@@ -194,9 +210,11 @@ export interface FileRoutesById {
   '/admin-login': typeof AdminLoginRoute
   '/client-dashboard': typeof ClientDashboardRouteWithChildren
   '/client-login-signup': typeof ClientLoginSignupRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
   '/pro-verification': typeof ProVerificationRoute
+  '/reset-password': typeof ResetPasswordRoute
   '/reviews': typeof ReviewsRoute
   '/client-dashboard/bookings': typeof ClientDashboardBookingsRoute
   '/client-dashboard/checkout': typeof ClientDashboardCheckoutRoute
@@ -219,9 +237,11 @@ export interface FileRouteTypes {
     | '/admin-login'
     | '/client-dashboard'
     | '/client-login-signup'
+    | '/forgot-password'
     | '/pro-dashboard'
     | '/pro-login-signup'
     | '/pro-verification'
+    | '/reset-password'
     | '/reviews'
     | '/client-dashboard/bookings'
     | '/client-dashboard/checkout'
@@ -241,9 +261,11 @@ export interface FileRouteTypes {
     | '/admin-dashboard'
     | '/admin-login'
     | '/client-login-signup'
+    | '/forgot-password'
     | '/pro-dashboard'
     | '/pro-login-signup'
     | '/pro-verification'
+    | '/reset-password'
     | '/reviews'
     | '/client-dashboard/bookings'
     | '/client-dashboard/checkout'
@@ -264,9 +286,11 @@ export interface FileRouteTypes {
     | '/admin-login'
     | '/client-dashboard'
     | '/client-login-signup'
+    | '/forgot-password'
     | '/pro-dashboard'
     | '/pro-login-signup'
     | '/pro-verification'
+    | '/reset-password'
     | '/reviews'
     | '/client-dashboard/bookings'
     | '/client-dashboard/checkout'
@@ -288,9 +312,11 @@ export interface RootRouteChildren {
   AdminLoginRoute: typeof AdminLoginRoute
   ClientDashboardRoute: typeof ClientDashboardRouteWithChildren
   ClientLoginSignupRoute: typeof ClientLoginSignupRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   ProDashboardRoute: typeof ProDashboardRoute
   ProLoginSignupRoute: typeof ProLoginSignupRoute
   ProVerificationRoute: typeof ProVerificationRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
   ReviewsRoute: typeof ReviewsRoute
 }
 
@@ -301,6 +327,13 @@ declare module '@tanstack/react-router' {
       path: '/reviews'
       fullPath: '/reviews'
       preLoaderRoute: typeof ReviewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pro-verification': {
@@ -322,6 +355,13 @@ declare module '@tanstack/react-router' {
       path: '/pro-dashboard'
       fullPath: '/pro-dashboard'
       preLoaderRoute: typeof ProDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/client-login-signup': {
@@ -486,9 +526,11 @@ const rootRouteChildren: RootRouteChildren = {
   AdminLoginRoute: AdminLoginRoute,
   ClientDashboardRoute: ClientDashboardRouteWithChildren,
   ClientLoginSignupRoute: ClientLoginSignupRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   ProDashboardRoute: ProDashboardRoute,
   ProLoginSignupRoute: ProLoginSignupRoute,
   ProVerificationRoute: ProVerificationRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
   ReviewsRoute: ReviewsRoute,
 }
 export const routeTree = rootRouteImport
