@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Hammer, Mail } from "lucide-react";
-import bgImg from "@/assets/client-dashboard-bg.jpg";
+import bgImg from "@/assets/client-dashboard.png";
 import { requestPasswordReset } from "@/backend/auth-reset";
 
 export const Route = createFileRoute("/forgot-password")({
