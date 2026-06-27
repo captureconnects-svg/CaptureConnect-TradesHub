@@ -21,12 +21,21 @@ export async function getVerificationStatus(): Promise<VerificationStatusResult>
   return { status: data.status as VerificationStatus, requestId: data.id };
 }
 
+const VERIFICATION_ALLOWED_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "application/pdf": "pdf",
+};
+
 async function uploadVerificationFile(
   userId: string,
   folder: "id-front" | "id-back" | "facial" | "certificate",
   file: File
 ): Promise<string> {
-  const ext = file.name.split(".").pop() || "jpg";
+  const ext = VERIFICATION_ALLOWED_TYPES[file.type];
+  if (!ext) throw new Error("Invalid file type. Allowed: JPEG, PNG, WebP, GIF, PDF.");
   const path = `${userId}/${folder}/${Date.now()}.${ext}`;
 
   const { error } = await supabase.storage

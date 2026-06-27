@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
+import { fetchContactRequests, markContactRequestReplied, type ContactRequest } from "@/backend/contact";
 import {
-  isAdminAuthenticated,
-  setAdminAuthenticated,
+  checkAdminAuth,
+  adminSignOut,
   fetchAdminQuickStats,
   fetchAdminRecentActivity,
   fetchAdminTopTradespeople,
@@ -14,6 +15,8 @@ import {
   deleteAdminReview,
   fetchAdminOrders,
   deleteAdminOrder,
+  issueOrderRefund,
+  issueBookingRefund,
   fetchAllConversations,
   fetchAllMerchandise,
   fetchAllVerifications,
@@ -53,6 +56,7 @@ import {
   type AdminSettings,
   type AdminLoginRecord,
 } from "@/backend/admin";
+import { fetchAdminReturnRequests, fetchReturnEvidence, markReturnRefunded, type AdminReturnRequest } from "@/backend/return-requests";
 import { supabase } from "@/lib/supabase";
 import {
   Shield,
@@ -97,6 +101,9 @@ import {
   ShieldAlert,
   Download,
   KeyRound,
+  Mail,
+  MailOpen,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -145,7 +152,7 @@ import { ThemeToggle } from "@/lib/theme";
 
 export const Route = createFileRoute("/admin-dashboard")({
   head: () => ({
-    meta: [{ title: "Admin Dashboard — TradeHub" }],
+    meta: [{ title: "Admin Dashboard — Capture Connect" }],
   }),
   component: AdminDashboardPage,
 });
@@ -154,46 +161,52 @@ type View =
   | "overview"
   | "users"
   | "bookings"
-  | "reviews"
   | "orders"
+  | "refund-requests"
+  | "reviews"
   | "verifications"
   | "testimonials"
   | "audit-logs"
   | "admin-settings"
-  | "security-overview";
+  | "security-overview"
+  | "contact-requests";
 
 const NAV: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "users", label: "Users", icon: Users },
   { id: "bookings", label: "Bookings", icon: CalendarCheck },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "refund-requests", label: "Refund Requests", icon: RefreshCw },
   { id: "reviews", label: "Reviews", icon: Star },
   { id: "verifications", label: "Verifications", icon: BadgeCheck },
   { id: "testimonials", label: "Testimonials", icon: Film },
+  { id: "contact-requests", label: "Contact Requests", icon: Mail },
 ];
 
 const AUDIT_NAV: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "audit-logs", label: "Logs", icon: ScrollText },
-  { id: "admin-settings", label: "Settings", icon: Settings },
   { id: "security-overview", label: "Security Overview", icon: ShieldAlert },
+  { id: "admin-settings", label: "Settings", icon: Settings },
 ];
 
 function AdminDashboardPage() {
   const [view, setView] = useState<View>("overview");
+  const [authState, setAuthState] = useState<"checking" | "ok" | "denied">("checking");
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!isAdminAuthenticated()) {
-      navigate({ to: "/admin-login" });
-    }
+    checkAdminAuth().then((ok) => {
+      setAuthState(ok ? "ok" : "denied");
+      if (!ok) navigate({ to: "/admin-login" });
+    });
   }, []);
 
-  function handleLogout() {
-    setAdminAuthenticated(false);
+  async function handleLogout() {
+    await adminSignOut();
     navigate({ to: "/admin-login" });
   }
 
-  if (!isAdminAuthenticated()) return null;
+  if (authState !== "ok") return null;
 
   return (
     <SidebarProvider>
@@ -291,6 +304,8 @@ function AdminDashboardPage() {
             {view === "audit-logs" && <AdminAuditLogsView />}
             {view === "admin-settings" && <AdminSettingsView />}
             {view === "security-overview" && <AdminSecurityOverviewView />}
+            {view === "refund-requests" && <AdminRefundRequestsView />}
+            {view === "contact-requests" && <AdminContactRequestsView />}
           </main>
         </div>
       </div>
@@ -890,6 +905,7 @@ function UserManagementView() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"All" | "Client" | "Pro">("All");
+  const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Suspended" | "Deleted">("All");
   const [page, setPage] = useState(0);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -916,12 +932,11 @@ function UserManagementView() {
     setDeletingId(user.id);
     try {
       await deleteAdminUser(user.id, user.type);
+      // Keep the user in the list so the admin sees the Deleted status immediately.
+      // They will also appear on next refresh via deleted_accounts.
       setUsers((prev) =>
         prev.map((u) => u.id === user.id && u.type === user.type ? { ...u, status: "Deleted" } : u),
       );
-      setTimeout(() => {
-        setUsers((prev) => prev.filter((u) => !(u.id === user.id && u.type === user.type)));
-      }, 1200);
     } catch (e: any) {
       alert(e.message ?? "Failed to delete user");
     } finally {
@@ -954,9 +969,11 @@ function UserManagementView() {
   const proCount = users.filter((u) => u.type === "Pro").length;
   const clientCount = users.filter((u) => u.type === "Client").length;
   const suspendedCount = users.filter((u) => u.status === "Suspended").length;
+  const deletedCount = users.filter((u) => u.status === "Deleted").length;
 
   const filtered = users.filter((u) => {
     if (typeFilter !== "All" && u.type !== typeFilter) return false;
+    if (statusFilter !== "All" && u.status !== statusFilter) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -1025,6 +1042,20 @@ function UserManagementView() {
             <SelectItem value="All">All Users</SelectItem>
             <SelectItem value="Client">Clients</SelectItem>
             <SelectItem value="Pro">Tradespeople</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => { setStatusFilter(v as "All" | "Active" | "Suspended" | "Deleted"); setPage(0); }}
+        >
+          <SelectTrigger className="h-9 w-full sm:w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Statuses</SelectItem>
+            <SelectItem value="Active">Active</SelectItem>
+            <SelectItem value="Suspended">Suspended</SelectItem>
+            <SelectItem value="Deleted">Deleted</SelectItem>
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" onClick={load} className="h-9 gap-1.5 shrink-0">
@@ -1108,7 +1139,7 @@ function UserManagementView() {
                         </button>
                         <button
                           onClick={() => handleToggleSuspend(user)}
-                          disabled={suspendingId === user.id}
+                          disabled={suspendingId === user.id || user.status === "Deleted"}
                           className={`h-7 w-7 rounded border flex items-center justify-center transition-colors disabled:opacity-50 ${
                             user.status === "Suspended"
                               ? "border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
@@ -1122,9 +1153,9 @@ function UserManagementView() {
                         </button>
                         <button
                           onClick={() => handleDelete(user)}
-                          disabled={deletingId === user.id}
+                          disabled={deletingId === user.id || user.status === "Deleted"}
                           className="h-7 w-7 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors disabled:opacity-50"
-                          title="Delete user"
+                          title={user.status === "Deleted" ? "Account already deleted" : "Delete user"}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -1437,6 +1468,25 @@ function AdminBookingDetailDialog({
                 )}
               </div>
             </BookingDetailRow>
+            <BookingDetailRow label="Refund Status">
+              {booking.refunded || booking.returnRequestStatus === "refunded" ? (
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                  Refunded
+                </span>
+              ) : booking.returnRequestId ? (
+                booking.returnRequestStatus === "pro_approved" ? (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                    Approved
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    Requested
+                  </span>
+                )
+              ) : (
+                <span className="text-muted-foreground text-xs">—</span>
+              )}
+            </BookingDetailRow>
             <BookingDetailRow label="Created At">
               <span className="text-muted-foreground">{createdDisplay}</span>
             </BookingDetailRow>
@@ -1467,7 +1517,7 @@ function AdminBookingDetailDialog({
           )}
         </div>
 
-        <div className="shrink-0 pt-3 flex justify-end">
+        <div className="shrink-0 pt-3 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
       </DialogContent>
@@ -1568,6 +1618,7 @@ function AdminBookingsView() {
   const [viewingBooking, setViewingBooking] = useState<AdminBooking | null>(null);
   const [editingBooking, setEditingBooking] = useState<AdminBooking | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [refundingId, setRefundingId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -1597,10 +1648,24 @@ function AdminBookingsView() {
     }
   }
 
+  async function handleRefund(booking: AdminBooking) {
+    if (!confirm(`Issue refund for booking ${booking.id.slice(0, 8)}? This cannot be undone.`)) return;
+    setRefundingId(booking.id);
+    try {
+      await issueBookingRefund(booking.id);
+      setBookings((prev) => prev.map((b) => b.id === booking.id ? { ...b, refunded: true } : b));
+    } catch (e: any) {
+      alert(e.message ?? "Failed to issue refund");
+    } finally {
+      setRefundingId(null);
+    }
+  }
+
   const totalCount = bookings.length;
   const completedCount = bookings.filter((b) => b.status === "completed").length;
   const cancelledCount = bookings.filter((b) => b.status === "cancelled").length;
   const confirmedCount = bookings.filter((b) => b.status === "confirmed").length;
+  const pendingRefundCount = bookings.filter((b) => b.status === "cancelled" && !b.refunded).length;
 
   const filtered = bookings.filter((b) => {
     if (statusFilter !== "All Status" && b.status !== statusFilter.toLowerCase()) return false;
@@ -1626,11 +1691,12 @@ function AdminBookingsView() {
   return (
     <div className="space-y-5">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <StatCard label="Total Bookings" value={totalCount} color="text-blue-600 dark:text-blue-400" icon={CalendarCheck} iconColor="text-blue-500" />
         <StatCard label="Completed" value={completedCount} color="text-green-600 dark:text-green-400" icon={ShieldCheck} iconColor="text-green-500" />
         <StatCard label="Cancelled" value={cancelledCount} color="text-red-600 dark:text-red-400" icon={XCircle} iconColor="text-red-500" />
         <StatCard label="Confirmed" value={confirmedCount} color="text-purple-600 dark:text-purple-400" icon={Clock} iconColor="text-purple-500" />
+        <StatCard label="Refund Pending" value={pendingRefundCount} color="text-amber-600 dark:text-amber-400" icon={RefreshCw} iconColor="text-amber-500" />
       </div>
 
       {/* Search + filter */}
@@ -1726,10 +1792,20 @@ function AdminBookingsView() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {booking.refunded ? (
+                        {booking.refunded || booking.returnRequestStatus === "refunded" ? (
                           <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
                             Refunded
                           </span>
+                        ) : booking.returnRequestId ? (
+                          booking.returnRequestStatus === "pro_approved" ? (
+                            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                              Approved
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                              Requested
+                            </span>
+                          )
                         ) : (
                           <span className="text-muted-foreground text-xs">—</span>
                         )}
@@ -1750,6 +1826,18 @@ function AdminBookingsView() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
+                          {booking.status === "cancelled" && booking.paymentStatus === "paid" && !booking.refunded && booking.returnRequestStatus !== "refunded" && (
+                            <button
+                              onClick={() => handleRefund(booking)}
+                              disabled={refundingId === booking.id}
+                              className="h-7 w-7 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-green-600 hover:border-green-400 dark:hover:text-green-400 transition-colors disabled:opacity-50"
+                              title="Issue refund"
+                            >
+                              {refundingId === booking.id
+                                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                : <CreditCard className="h-3.5 w-3.5" />}
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDelete(booking)}
                             disabled={deletingId === booking.id}
@@ -1911,6 +1999,23 @@ function AdminOrderDetailDialog({
                 </span>
               )}
             </BookingDetailRow>
+            <BookingDetailRow label="Refund Status">
+              {order.refunded || order.returnRequestStatus === "refunded" ? (
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Refunded
+                </span>
+              ) : order.returnRequestStatus === "pro_approved" ? (
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                  Return Approved
+                </span>
+              ) : order.returnRequestStatus === "pending" ? (
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                  Return Requested
+                </span>
+              ) : (
+                <span className="text-muted-foreground text-xs">—</span>
+              )}
+            </BookingDetailRow>
             <BookingDetailRow label="Order Date">
               <span className="text-muted-foreground">{orderDate}</span>
             </BookingDetailRow>
@@ -1948,7 +2053,7 @@ function AdminOrderDetailDialog({
           )}
         </div>
 
-        <div className="shrink-0 pt-3 flex justify-end">
+        <div className="shrink-0 pt-3 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
       </DialogContent>
@@ -2000,6 +2105,7 @@ function AdminOrdersView() {
   const deliveredCount = orders.filter((o) => o.isDelivered).length;
   const deliveryPendingCount = orders.filter((o) => o.shippingMethod === "delivery" && !o.isDelivered).length;
   const pickupCount = orders.filter((o) => o.shippingMethod !== "delivery").length;
+  const refundedCount = orders.filter((o) => o.refunded).length;
 
   const filtered = orders.filter((o) => {
     if (methodFilter === "Delivery" && o.shippingMethod !== "delivery") return false;
@@ -2025,11 +2131,12 @@ function AdminOrdersView() {
   return (
     <div className="space-y-5">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <StatCard label="Total Orders" value={totalCount} color="text-blue-600 dark:text-blue-400" icon={ShoppingBag} iconColor="text-blue-500" />
         <StatCard label="Delivered" value={deliveredCount} color="text-green-600 dark:text-green-400" icon={ShieldCheck} iconColor="text-green-500" />
         <StatCard label="Pending Delivery" value={deliveryPendingCount} color="text-yellow-600 dark:text-yellow-400" icon={Truck} iconColor="text-yellow-500" />
         <StatCard label="Pickup Orders" value={pickupCount} color="text-purple-600 dark:text-purple-400" icon={Package} iconColor="text-purple-500" />
+        <StatCard label="Refunded" value={refundedCount} color="text-red-600 dark:text-red-400" icon={RefreshCw} iconColor="text-red-500" />
       </div>
 
       {/* Search + filter */}
@@ -2083,7 +2190,7 @@ function AdminOrdersView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  {["Order #", "Customer", "Email", "Method", "Total", "Delivered", "Date", "Actions"].map((col) => (
+                  {["Order #", "Customer", "Email", "Method", "Total", "Delivered", "Refunded", "Date", "Actions"].map((col) => (
                     <th key={col} className="px-4 py-3 text-left font-medium text-muted-foreground whitespace-nowrap">
                       {col}
                     </th>
@@ -2118,6 +2225,15 @@ function AdminOrdersView() {
                       <td className="px-4 py-3 font-semibold whitespace-nowrap">${order.totalPrice.toFixed(2)}</td>
                       <td className="px-4 py-3">
                         {order.isDelivered ? (
+                          <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            Yes
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {order.refunded || order.returnRequestStatus === "refunded" ? (
                           <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                             Yes
                           </span>
@@ -3463,9 +3579,21 @@ function AdminAuditLogsView() {
 // ─── Admin Audit: Settings ────────────────────────────────────────────────────
 
 function AdminSettingsView() {
-  const [settings, setSettings] = useState<AdminSettings>(() => getAdminSettings());
+  const [settings, setSettings] = useState<AdminSettings>({
+    siteName: "Capture Connect - TradeHub Marketplace",
+    maintenanceMode: false,
+    allowRegistrations: true,
+    sessionTimeoutHours: 24,
+    defaultCurrency: "USD",
+    auditLogRetentionDays: 90,
+  });
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const adminEmail = getAdminEmail();
+
+  useEffect(() => {
+    getAdminSettings().then(setSettings);
+  }, []);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -3503,10 +3631,15 @@ function AdminSettingsView() {
     }
   }
 
-  function handleSave() {
-    saveAdminSettings(settings);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  async function handleSave() {
+    setSaveError(null);
+    try {
+      await saveAdminSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setSaveError(e.message ?? "Failed to save settings.");
+    }
   }
 
   function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
@@ -3524,178 +3657,189 @@ function AdminSettingsView() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto">
       <div>
         <h2 className="text-xl font-semibold">Settings</h2>
         <p className="text-sm text-muted-foreground mt-0.5">Platform-wide configuration</p>
       </div>
 
-      <div className="rounded-xl border border-border overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
-          <Settings className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-semibold text-sm">Site Configuration</h3>
-        </div>
-        <div className="p-5 space-y-5">
-          <div className="space-y-1.5">
-            <Label htmlFor="siteName">Site Name</Label>
-            <Input
-              id="siteName"
-              value={settings.siteName}
-              onChange={(e) => setSettings((s) => ({ ...s, siteName: e.target.value }))}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Maintenance Mode</p>
-              <p className="text-xs text-muted-foreground">Shows a maintenance page to all users</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* Left column — site configuration */}
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
+              <Settings className="h-4 w-4 text-muted-foreground" />
+              <h3 className="font-semibold text-sm">Site Configuration</h3>
             </div>
-            <Toggle
-              checked={settings.maintenanceMode}
-              onChange={() => setSettings((s) => ({ ...s, maintenanceMode: !s.maintenanceMode }))}
-            />
-          </div>
+            <div className="p-5 space-y-5">
+              <div className="space-y-1.5">
+                <Label htmlFor="siteName">Site Name</Label>
+                <Input
+                  id="siteName"
+                  value={settings.siteName}
+                  onChange={(e) => setSettings((s) => ({ ...s, siteName: e.target.value }))}
+                />
+              </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Allow New Registrations</p>
-              <p className="text-xs text-muted-foreground">Permit new clients and pros to sign up</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Maintenance Mode</p>
+                  <p className="text-xs text-muted-foreground">Shows a maintenance page to all users</p>
+                </div>
+                <Toggle
+                  checked={settings.maintenanceMode}
+                  onChange={() => setSettings((s) => ({ ...s, maintenanceMode: !s.maintenanceMode }))}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Allow New Registrations</p>
+                  <p className="text-xs text-muted-foreground">Permit new clients and pros to sign up</p>
+                </div>
+                <Toggle
+                  checked={settings.allowRegistrations}
+                  onChange={() => setSettings((s) => ({ ...s, allowRegistrations: !s.allowRegistrations }))}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="sessionTimeout">Session Timeout</Label>
+                <Select
+                  value={String(settings.sessionTimeoutHours)}
+                  onValueChange={(v) => setSettings((s) => ({ ...s, sessionTimeoutHours: Number(v) }))}
+                >
+                  <SelectTrigger id="sessionTimeout">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 hour</SelectItem>
+                    <SelectItem value="8">8 hours</SelectItem>
+                    <SelectItem value="24">24 hours</SelectItem>
+                    <SelectItem value="72">3 days</SelectItem>
+                    <SelectItem value="168">7 days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="defaultCurrency">Default Currency</Label>
+                <Select
+                  value={settings.defaultCurrency}
+                  onValueChange={(v) => setSettings((s) => ({ ...s, defaultCurrency: v }))}
+                >
+                  <SelectTrigger id="defaultCurrency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD — US Dollar</SelectItem>
+                    <SelectItem value="GBP">GBP — British Pound</SelectItem>
+                    <SelectItem value="EUR">EUR — Euro</SelectItem>
+                    <SelectItem value="CAD">CAD — Canadian Dollar</SelectItem>
+                    <SelectItem value="AUD">AUD — Australian Dollar</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="auditRetention">Audit Log Retention</Label>
+                <Select
+                  value={String(settings.auditLogRetentionDays)}
+                  onValueChange={(v) => setSettings((s) => ({ ...s, auditLogRetentionDays: Number(v) }))}
+                >
+                  <SelectTrigger id="auditRetention">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">30 days</SelectItem>
+                    <SelectItem value="60">60 days</SelectItem>
+                    <SelectItem value="90">90 days</SelectItem>
+                    <SelectItem value="180">180 days</SelectItem>
+                    <SelectItem value="365">1 year</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <Toggle
-              checked={settings.allowRegistrations}
-              onChange={() => setSettings((s) => ({ ...s, allowRegistrations: !s.allowRegistrations }))}
-            />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="sessionTimeout">Session Timeout</Label>
-            <Select
-              value={String(settings.sessionTimeoutHours)}
-              onValueChange={(v) => setSettings((s) => ({ ...s, sessionTimeoutHours: Number(v) }))}
-            >
-              <SelectTrigger id="sessionTimeout">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1">1 hour</SelectItem>
-                <SelectItem value="8">8 hours</SelectItem>
-                <SelectItem value="24">24 hours</SelectItem>
-                <SelectItem value="72">3 days</SelectItem>
-                <SelectItem value="168">7 days</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="defaultCurrency">Default Currency</Label>
-            <Select
-              value={settings.defaultCurrency}
-              onValueChange={(v) => setSettings((s) => ({ ...s, defaultCurrency: v }))}
-            >
-              <SelectTrigger id="defaultCurrency">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="USD">USD — US Dollar</SelectItem>
-                <SelectItem value="GBP">GBP — British Pound</SelectItem>
-                <SelectItem value="EUR">EUR — Euro</SelectItem>
-                <SelectItem value="CAD">CAD — Canadian Dollar</SelectItem>
-                <SelectItem value="AUD">AUD — Australian Dollar</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="auditRetention">Audit Log Retention</Label>
-            <Select
-              value={String(settings.auditLogRetentionDays)}
-              onValueChange={(v) => setSettings((s) => ({ ...s, auditLogRetentionDays: Number(v) }))}
-            >
-              <SelectTrigger id="auditRetention">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="30">30 days</SelectItem>
-                <SelectItem value="60">60 days</SelectItem>
-                <SelectItem value="90">90 days</SelectItem>
-                <SelectItem value="180">180 days</SelectItem>
-                <SelectItem value="365">1 year</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
-          <Shield className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-semibold text-sm">Admin Account</h3>
-        </div>
-        <div className="p-5 space-y-3">
-          <div className="space-y-1.5">
-            <Label>Admin Email</Label>
-            <Input value={adminEmail ?? "admin@tradehub.com"} readOnly className="bg-muted/30 cursor-not-allowed" />
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
-          <KeyRound className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-semibold text-sm">Change Password</h3>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="current-password">Current Password</Label>
-            <Input
-              id="current-password"
-              type="password"
-              placeholder="Enter current password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="new-password">New Password</Label>
-            <Input
-              id="new-password"
-              type="password"
-              placeholder="Min. 8 characters"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="confirm-password">Confirm New Password</Label>
-            <Input
-              id="confirm-password"
-              type="password"
-              placeholder="Repeat new password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-            />
-          </div>
-          {pwError && (
-            <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{pwError}</p>
+          {saveError && (
+            <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{saveError}</p>
           )}
-          {pwSuccess && (
-            <p className="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 rounded-lg px-3 py-2 flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 shrink-0" /> Password updated successfully.
-            </p>
-          )}
-          <Button onClick={handleChangePassword} disabled={pwSaving} variant="outline" className="gap-2">
-            {pwSaving ? (
-              <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Updating…</>
-            ) : (
-              <><KeyRound className="h-3.5 w-3.5" /> Update Password</>
-            )}
+          <Button onClick={handleSave} className="gap-2">
+            {saved ? <><CheckCircle className="h-4 w-4" /> Saved</> : "Save Settings"}
           </Button>
         </div>
-      </div>
 
-      <Button onClick={handleSave} className="gap-2">
-        {saved ? <><CheckCircle className="h-4 w-4" /> Saved</> : "Save Settings"}
-      </Button>
+        {/* Right column — admin account + change password */}
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              <h3 className="font-semibold text-sm">Admin Account</h3>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="space-y-1.5">
+                <Label>Admin Email</Label>
+                <Input value={adminEmail ?? "admin@tradehub.com"} readOnly className="bg-muted/30 cursor-not-allowed" />
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="flex items-center gap-2 px-5 py-4 border-b border-border bg-muted/20">
+              <KeyRound className="h-4 w-4 text-muted-foreground" />
+              <h3 className="font-semibold text-sm">Change Password</h3>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="current-password">Current Password</Label>
+                <Input
+                  id="current-password"
+                  type="password"
+                  placeholder="Enter current password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-password">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  placeholder="Min. 8 characters"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm-password">Confirm New Password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  placeholder="Repeat new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
+              {pwError && (
+                <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{pwError}</p>
+              )}
+              {pwSuccess && (
+                <p className="text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/30 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 shrink-0" /> Password updated successfully.
+                </p>
+              )}
+              <Button onClick={handleChangePassword} disabled={pwSaving} variant="outline" className="gap-2">
+                {pwSaving ? (
+                  <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Updating…</>
+                ) : (
+                  <><KeyRound className="h-3.5 w-3.5" /> Update Password</>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3705,7 +3849,7 @@ function AdminSettingsView() {
 function AdminSecurityOverviewView() {
   const [metrics, setMetrics] = useState<SecurityMetrics | null>(null);
   const [suspendedUsers, setSuspendedUsers] = useState<AdminUser[]>([]);
-  const [loginHistory] = useState<AdminLoginRecord[]>(() => getAdminLoginHistory());
+  const [loginHistory, setLoginHistory] = useState<AdminLoginRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unsuspending, setUnsuspending] = useState<string | null>(null);
@@ -3727,7 +3871,10 @@ function AdminSecurityOverviewView() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    getAdminLoginHistory().then(setLoginHistory);
+  }, []);
 
   async function handleUnsuspend(user: AdminUser) {
     setUnsuspending(user.id);
@@ -3840,6 +3987,7 @@ function AdminSecurityOverviewView() {
               <thead className="sticky top-0 bg-muted/60 border-b border-border z-10">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">#</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">Name</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">Admin ID</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">Email</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground whitespace-nowrap">IP Address</th>
@@ -3850,6 +3998,7 @@ function AdminSecurityOverviewView() {
                 {loginHistory.map((record, i) => (
                   <tr key={i} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
                     <td className="px-4 py-3 text-muted-foreground">{i + 1}</td>
+                    <td className="px-4 py-3 font-medium">{record.name || "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground" title={record.adminId ?? undefined}>
                       {record.adminId ? record.adminId.slice(0, 8) + "…" : "—"}
                     </td>
@@ -3867,6 +4016,616 @@ function AdminSecurityOverviewView() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Admin Refund Requests View ──────────────────────────────────────────────
+
+const STATUS_COLORS: Record<string, string> = {
+  pending:      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  pro_approved: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  pro_declined: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  refunded:     "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  pending:      "Pending Pro",
+  pro_approved: "Pro Approved",
+  pro_declined: "Pro Declined",
+  refunded:     "Refunded",
+};
+
+function AdminRefundRequestsView() {
+  const [requests, setRequests] = useState<AdminReturnRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "pending" | "pro_approved" | "pro_declined" | "refunded">("all");
+  const [search, setSearch] = useState("");
+  const [viewing, setViewing] = useState<AdminReturnRequest | null>(null);
+  const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [loadingEvidence, setLoadingEvidence] = useState(false);
+  const [issuingId, setIssuingId] = useState<number | null>(null);
+
+  async function openRequest(req: AdminReturnRequest) {
+    setViewing(req);
+    setEvidenceUrls([]);
+    setLoadingEvidence(true);
+    try {
+      setEvidenceUrls(await fetchReturnEvidence(req.id));
+    } catch {
+    } finally {
+      setLoadingEvidence(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchAdminReturnRequests()
+      .then(setRequests)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleIssueRefund(req: AdminReturnRequest) {
+    setIssuingId(req.id);
+    try {
+      if (req.orderId) {
+        await issueOrderRefund(req.orderId);
+      } else if (req.bookingId) {
+        await issueBookingRefund(req.bookingId);
+      }
+      await markReturnRefunded(req.id);
+      setRequests((prev) =>
+        prev.map((r) => (r.id === req.id ? { ...r, status: "refunded" } : r))
+      );
+      if (viewing?.id === req.id) setViewing((v) => v ? { ...v, status: "refunded" } : null);
+    } catch {
+    } finally {
+      setIssuingId(null);
+    }
+  }
+
+  const counts = {
+    all:          requests.length,
+    pending:      requests.filter((r) => r.status === "pending").length,
+    pro_approved: requests.filter((r) => r.status === "pro_approved").length,
+    pro_declined: requests.filter((r) => r.status === "pro_declined").length,
+    refunded:     requests.filter((r) => r.status === "refunded").length,
+  };
+
+  const filtered = requests
+    .filter((r) => filter === "all" || r.status === filter)
+    .filter((r) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        r.clientName.toLowerCase().includes(q) ||
+        r.proName.toLowerCase().includes(q) ||
+        r.reason.toLowerCase().includes(q) ||
+        String(r.id).includes(q)
+      );
+    });
+
+  const tabs: { id: typeof filter; label: string }[] = [
+    { id: "all",          label: "All" },
+    { id: "pending",      label: "Pending Pro" },
+    { id: "pro_approved", label: "Pro Approved" },
+    { id: "pro_declined", label: "Pro Declined" },
+    { id: "refunded",     label: "Refunded" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold">Refund Requests</h2>
+          <p className="text-sm text-muted-foreground">
+            Review client refund requests and issue refunds once approved by the pro.
+          </p>
+        </div>
+        <div className="relative w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+            placeholder="Search client, pro, reason…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setFilter(tab.id)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              filter === tab.id
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted/60 text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            {tab.label}
+            <span className={`text-xs rounded-full px-1.5 py-0.5 font-semibold ${filter === tab.id ? "bg-white/20" : "bg-background"}`}>
+              {counts[tab.id]}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-border bg-card text-center">
+          <RefreshCw className="h-10 w-10 text-muted-foreground/30 mb-3" />
+          <p className="font-medium">No refund requests found</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {filter === "all" ? "Refund requests from clients will appear here." : `No ${STATUS_LABEL[filter] ?? filter} requests.`}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40 text-muted-foreground text-xs uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left font-medium">ID</th>
+                  <th className="px-4 py-3 text-left font-medium">Type</th>
+                  <th className="px-4 py-3 text-left font-medium">Client</th>
+                  <th className="px-4 py-3 text-left font-medium">Pro</th>
+                  <th className="px-4 py-3 text-left font-medium">Status</th>
+                  <th className="px-4 py-3 text-left font-medium">Refund</th>
+                  <th className="px-4 py-3 text-left font-medium">Date</th>
+                  <th className="px-4 py-3 text-left font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((req) => {
+                  const type = req.orderId ? "Order" : "Booking";
+                  const linkedId = req.orderId
+                    ? `#${String(req.orderId).padStart(6, "0")}`
+                    : `#${req.bookingId?.slice(0, 8) ?? "—"}`;
+                  const date = req.createdAt
+                    ? new Date(req.createdAt).toLocaleDateString("en-US", {
+                        month: "short", day: "numeric", year: "numeric",
+                      })
+                    : "—";
+
+                  return (
+                    <tr key={req.id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{req.id}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                          type === "Order"
+                            ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                            : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                        }`}>
+                          {type === "Order" ? <Package className="h-3 w-3" /> : <CalendarCheck className="h-3 w-3" />}
+                          {type} {linkedId}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-medium">{req.clientName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{req.proName}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[req.status] ?? ""}`}>
+                          {STATUS_LABEL[req.status] ?? req.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {req.refundType === "partial"
+                          ? <span className="text-amber-600 font-medium">Partial — ${req.partialAmount?.toFixed(2) ?? "0.00"}</span>
+                          : req.refundType === "full"
+                          ? <span className="text-emerald-600 font-medium">Full</span>
+                          : <span className="text-muted-foreground">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{date}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => openRequest(req)}
+                            className="h-7 w-7 rounded border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors"
+                            title="View details"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          {req.status === "pro_approved" && (
+                            <button
+                              onClick={() => handleIssueRefund(req)}
+                              disabled={issuingId === req.id}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs hover:border-primary/50 hover:text-primary transition-colors disabled:opacity-50 whitespace-nowrap"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              {issuingId === req.id ? "Issuing…" : "Issue Refund"}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Detail dialog */}
+      <Dialog open={viewing !== null} onOpenChange={(open) => { if (!open) { setViewing(null); setEvidenceUrls([]); } }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Refund Request #{viewing?.id}</DialogTitle>
+          </DialogHeader>
+          {viewing && (
+            <div className="space-y-4 py-1">
+              {/* Type & link */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-muted/50 border border-border p-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Type</p>
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    {viewing.orderId ? <Package className="h-3.5 w-3.5 text-purple-500" /> : <CalendarCheck className="h-3.5 w-3.5 text-blue-500" />}
+                    {viewing.orderId
+                      ? `Order #${String(viewing.orderId).padStart(6, "0")}`
+                      : `Booking #${viewing.bookingId?.slice(0, 8)}`}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-muted/50 border border-border p-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Status</p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[viewing.status] ?? ""}`}>
+                    {STATUS_LABEL[viewing.status] ?? viewing.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* People */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-muted/50 border border-border p-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Client</p>
+                  <p className="text-sm font-medium">{viewing.clientName}</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 border border-border p-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Pro</p>
+                  <p className="text-sm font-medium">{viewing.proName}</p>
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div className="rounded-lg bg-muted/50 border border-border p-3">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Reason from client</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{viewing.reason}</p>
+              </div>
+
+              {/* Refund decision */}
+              {viewing.refundType && (
+                <div className="rounded-lg bg-muted/50 border border-border p-3">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Pro's refund decision</p>
+                  <p className="text-sm font-medium">
+                    {viewing.refundType === "full"
+                      ? "Full refund"
+                      : `Partial refund — $${viewing.partialAmount?.toFixed(2) ?? "0.00"}`}
+                  </p>
+                </div>
+              )}
+
+              {/* Evidence images */}
+              <div className="rounded-lg bg-muted/50 border border-border p-3">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Proof / Evidence</p>
+                {loadingEvidence ? (
+                  <p className="text-xs text-muted-foreground">Loading images…</p>
+                ) : evidenceUrls.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No evidence uploaded</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {evidenceUrls.map((url, i) => (
+                      <a key={i} href={url} target="_blank" rel="noreferrer" className="block rounded-md overflow-hidden border border-border hover:opacity-80 transition-opacity">
+                        <img
+                          src={url}
+                          alt={`Evidence ${i + 1}`}
+                          className="w-full h-32 object-cover"
+                          onError={(e) => { (e.currentTarget.closest("a") as HTMLElement).style.display = "none"; }}
+                        />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Submitted */}
+              <p className="text-xs text-muted-foreground">
+                Submitted {viewing.createdAt
+                  ? new Date(viewing.createdAt).toLocaleDateString("en-US", {
+                      weekday: "short", month: "long", day: "numeric", year: "numeric",
+                    })
+                  : "—"}
+              </p>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setViewing(null)}>Close</Button>
+            {viewing?.status === "pro_approved" && (
+              <Button
+                disabled={issuingId === viewing.id}
+                onClick={() => { if (viewing) handleIssueRefund(viewing); }}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                {issuingId === viewing.id ? "Issuing…" : "Issue Refund"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── Admin Contact Requests View ─────────────────────────────────────────────
+
+function AdminContactRequestsView() {
+  const [requests, setRequests] = useState<ContactRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "new" | "replied">("all");
+  const [replyingTo, setReplyingTo] = useState<ContactRequest | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setRequests(await fetchContactRequests());
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load contact requests");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  function openReply(req: ContactRequest) {
+    setReplyingTo(req);
+    setReplyText("");
+    setSendError(null);
+  }
+
+  async function handleSendReply() {
+    if (!replyingTo || !replyText.trim()) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await markContactRequestReplied(replyingTo.id, replyText.trim());
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === replyingTo.id
+            ? { ...r, status: "replied", admin_reply: replyText.trim(), replied_at: new Date().toISOString() }
+            : r,
+        ),
+      );
+      // Open mailto so admin can send the actual email
+      const mailto = `mailto:${encodeURIComponent(replyingTo.email)}?subject=${encodeURIComponent(`Re: ${replyingTo.subject}`)}&body=${encodeURIComponent(replyText.trim())}`;
+      window.open(mailto, "_blank");
+      setReplyingTo(null);
+    } catch (e: any) {
+      setSendError(e.message ?? "Failed to save reply");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const filtered = requests.filter((r) => {
+    if (statusFilter === "replied" && r.status !== "replied") return false;
+    if (statusFilter === "new" && r.status === "replied") return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (
+        r.fullname.toLowerCase().includes(q) ||
+        r.email.toLowerCase().includes(q) ||
+        r.subject.toLowerCase().includes(q) ||
+        r.message.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const totalCount = requests.length;
+  const repliedCount = requests.filter((r) => r.status === "replied").length;
+  const newCount = totalCount - repliedCount;
+
+  if (loading) return <LoadingSkeleton rows={6} cols={5} />;
+  if (error) return <ErrorCard message={error} onRetry={load} />;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Contact Requests</h2>
+          <p className="text-sm text-muted-foreground">Messages submitted via the contact form</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={load} className="gap-2 shrink-0">
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Total</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">{newCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Awaiting Reply</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <p className="text-3xl font-bold text-green-600 dark:text-green-400">{repliedCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Replied</p>
+        </div>
+      </div>
+
+      {/* Search + filter */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            type="search"
+            placeholder="Search by name, email, or subject…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+        <Select
+          value={statusFilter}
+          onValueChange={(v) => setStatusFilter(v as "all" | "new" | "replied")}
+        >
+          <SelectTrigger className="h-9 w-full sm:w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="new">Awaiting Reply</SelectItem>
+            <SelectItem value="replied">Replied</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* List */}
+      {filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-12 text-center text-muted-foreground">
+          No contact requests found
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border divide-y divide-border overflow-hidden">
+          {filtered.map((req) => {
+            const isExpanded = expandedId === req.id;
+            const isReplied = req.status === "replied";
+            return (
+              <div key={req.id} className="bg-card">
+                {/* Header row */}
+                <div className="flex items-start gap-3 px-5 py-4">
+                  <div className={`mt-0.5 h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${isReplied ? "bg-green-50 dark:bg-green-900/20" : "bg-amber-50 dark:bg-amber-900/20"}`}>
+                    {isReplied
+                      ? <MailOpen className={`h-4 w-4 text-green-600 dark:text-green-400`} />
+                      : <Mail className={`h-4 w-4 text-amber-600 dark:text-amber-400`} />
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm">{req.fullname}</span>
+                      <span className="text-xs text-muted-foreground">{req.email}</span>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${isReplied ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}>
+                        {isReplied ? "Replied" : "New"}
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium mt-0.5 truncate">{req.subject}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {new Date(req.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setExpandedId(isExpanded ? null : req.id)}
+                      className="h-7 px-2.5 rounded border border-border text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+                    >
+                      {isExpanded ? "Collapse" : "View"}
+                    </button>
+                    <button
+                      onClick={() => openReply(req)}
+                      className="h-7 px-2.5 rounded border border-border text-xs flex items-center gap-1 text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors"
+                    >
+                      <Send className="h-3 w-3" />
+                      {isReplied ? "Re-reply" : "Reply"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded message */}
+                {isExpanded && (
+                  <div className="px-5 pb-5 space-y-3 border-t border-border/60 pt-3">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Message</p>
+                      <p className="text-sm whitespace-pre-wrap bg-muted/40 rounded-lg px-4 py-3">{req.message}</p>
+                    </div>
+                    {isReplied && req.admin_reply && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">
+                          Admin reply · {req.replied_at ? new Date(req.replied_at).toLocaleString() : ""}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800/40 rounded-lg px-4 py-3">{req.admin_reply}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Reply Dialog */}
+      <Dialog open={!!replyingTo} onOpenChange={(v) => { if (!v) setReplyingTo(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-4 w-4" /> Reply to {replyingTo?.fullname}
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              To: <span className="font-medium text-foreground">{replyingTo?.email}</span>
+              {" · "}Re: <span className="font-medium text-foreground">{replyingTo?.subject}</span>
+            </p>
+          </DialogHeader>
+
+          <div className="py-2 space-y-3">
+            {/* Original message reference */}
+            <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+              <p className="text-xs font-medium text-muted-foreground mb-1">Original message</p>
+              <p className="text-sm text-foreground line-clamp-4">{replyingTo?.message}</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Your reply</label>
+              <textarea
+                rows={6}
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Write your reply here…"
+                className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Clicking "Send Reply" will save the reply and open your email client pre-filled with this message.
+            </p>
+
+            {sendError && (
+              <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{sendError}</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReplyingTo(null)} disabled={sending}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendReply}
+              disabled={sending || !replyText.trim()}
+              className="gap-2"
+            >
+              {sending ? (
+                <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+              ) : (
+                <><Send className="h-3.5 w-3.5" /> Send Reply</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

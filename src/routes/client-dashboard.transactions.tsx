@@ -8,7 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@radix
 export const Route = createFileRoute("/client-dashboard/transactions")({
   head: () => ({
     meta: [
-      { title: "Transactions — TradeHub" },
+      { title: "Transactions — Capture Connect" },
       { name: "description", content: "View your TradeHub payment history." },
     ],
   }),

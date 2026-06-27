@@ -144,7 +144,7 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
   },
   head: ({ loaderData }) => ({
     meta: [
-      { title: `${loaderData?.pro.name ?? "Trader"} — TradeHub` },
+      { title: `${loaderData?.pro.name ?? "Trader"} — Capture Connect` },
       {
         name: "description",
         content: `View ${loaderData?.pro.name}'s profile on TradeHub. ${loaderData?.pro.tagline}`,

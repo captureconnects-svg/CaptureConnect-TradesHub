@@ -14,9 +14,12 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ProVerificationRouteImport } from './routes/pro-verification'
 import { Route as ProLoginSignupRouteImport } from './routes/pro-login-signup'
 import { Route as ProDashboardRouteImport } from './routes/pro-dashboard'
+import { Route as HelpRouteImport } from './routes/help'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as ContactRouteImport } from './routes/contact'
 import { Route as ClientLoginSignupRouteImport } from './routes/client-login-signup'
 import { Route as ClientDashboardRouteImport } from './routes/client-dashboard'
+import { Route as AuthCallbackRouteImport } from './routes/auth-callback'
 import { Route as AdminLoginRouteImport } from './routes/admin-login'
 import { Route as AdminDashboardRouteImport } from './routes/admin-dashboard'
 import { Route as IndexRouteImport } from './routes/index'
@@ -58,9 +61,19 @@ const ProDashboardRoute = ProDashboardRouteImport.update({
   path: '/pro-dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   id: '/forgot-password',
   path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientLoginSignupRoute = ClientLoginSignupRouteImport.update({
@@ -71,6 +84,11 @@ const ClientLoginSignupRoute = ClientLoginSignupRouteImport.update({
 const ClientDashboardRoute = ClientDashboardRouteImport.update({
   id: '/client-dashboard',
   path: '/client-dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth-callback',
+  path: '/auth-callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminLoginRoute = AdminLoginRouteImport.update({
@@ -158,9 +176,12 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admin-login': typeof AdminLoginRoute
+  '/auth-callback': typeof AuthCallbackRoute
   '/client-dashboard': typeof ClientDashboardRouteWithChildren
   '/client-login-signup': typeof ClientLoginSignupRoute
+  '/contact': typeof ContactRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/help': typeof HelpRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
   '/pro-verification': typeof ProVerificationRoute
@@ -183,8 +204,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admin-login': typeof AdminLoginRoute
+  '/auth-callback': typeof AuthCallbackRoute
   '/client-login-signup': typeof ClientLoginSignupRoute
+  '/contact': typeof ContactRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/help': typeof HelpRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
   '/pro-verification': typeof ProVerificationRoute
@@ -208,9 +232,12 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin-dashboard': typeof AdminDashboardRoute
   '/admin-login': typeof AdminLoginRoute
+  '/auth-callback': typeof AuthCallbackRoute
   '/client-dashboard': typeof ClientDashboardRouteWithChildren
   '/client-login-signup': typeof ClientLoginSignupRoute
+  '/contact': typeof ContactRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/help': typeof HelpRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
   '/pro-verification': typeof ProVerificationRoute
@@ -235,9 +262,12 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-dashboard'
     | '/admin-login'
+    | '/auth-callback'
     | '/client-dashboard'
     | '/client-login-signup'
+    | '/contact'
     | '/forgot-password'
+    | '/help'
     | '/pro-dashboard'
     | '/pro-login-signup'
     | '/pro-verification'
@@ -260,8 +290,11 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-dashboard'
     | '/admin-login'
+    | '/auth-callback'
     | '/client-login-signup'
+    | '/contact'
     | '/forgot-password'
+    | '/help'
     | '/pro-dashboard'
     | '/pro-login-signup'
     | '/pro-verification'
@@ -284,9 +317,12 @@ export interface FileRouteTypes {
     | '/'
     | '/admin-dashboard'
     | '/admin-login'
+    | '/auth-callback'
     | '/client-dashboard'
     | '/client-login-signup'
+    | '/contact'
     | '/forgot-password'
+    | '/help'
     | '/pro-dashboard'
     | '/pro-login-signup'
     | '/pro-verification'
@@ -310,9 +346,12 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdminLoginRoute: typeof AdminLoginRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
   ClientDashboardRoute: typeof ClientDashboardRouteWithChildren
   ClientLoginSignupRoute: typeof ClientLoginSignupRoute
+  ContactRoute: typeof ContactRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  HelpRoute: typeof HelpRoute
   ProDashboardRoute: typeof ProDashboardRoute
   ProLoginSignupRoute: typeof ProLoginSignupRoute
   ProVerificationRoute: typeof ProVerificationRoute
@@ -357,11 +396,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/forgot-password': {
       id: '/forgot-password'
       path: '/forgot-password'
       fullPath: '/forgot-password'
       preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/client-login-signup': {
@@ -376,6 +429,13 @@ declare module '@tanstack/react-router' {
       path: '/client-dashboard'
       fullPath: '/client-dashboard'
       preLoaderRoute: typeof ClientDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth-callback': {
+      id: '/auth-callback'
+      path: '/auth-callback'
+      fullPath: '/auth-callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin-login': {
@@ -524,9 +584,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminDashboardRoute: AdminDashboardRoute,
   AdminLoginRoute: AdminLoginRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
   ClientDashboardRoute: ClientDashboardRouteWithChildren,
   ClientLoginSignupRoute: ClientLoginSignupRoute,
+  ContactRoute: ContactRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  HelpRoute: HelpRoute,
   ProDashboardRoute: ProDashboardRoute,
   ProLoginSignupRoute: ProLoginSignupRoute,
   ProVerificationRoute: ProVerificationRoute,

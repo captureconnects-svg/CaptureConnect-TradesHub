@@ -24,6 +24,7 @@ export type OrderRecord = {
   totalPrice: number;
   createdAt: string;
   items: OrderItem[];
+  tradespersonId: string;
 };
 
 async function resolveItemImages(
@@ -62,8 +63,6 @@ export async function submitShoppingOrder(params: {
   phone: string;
   shippingMethod: "pickup" | "delivery";
   shippingAddress: string;
-  nameOnCard: string;
-  last4Card: string;
   subTotal: number;
   shippingTotal: number;
   tax: number;
@@ -83,8 +82,6 @@ export async function submitShoppingOrder(params: {
       phone: params.phone,
       shipping_method: params.shippingMethod,
       shipping_address: params.shippingAddress || null,
-      name_on_card: params.nameOnCard,
-      last4Card: params.last4Card,
       sub_total: params.subTotal,
       shipping_total: params.shippingTotal,
       tax: params.tax,
@@ -130,7 +127,7 @@ export async function fetchClientOrders(): Promise<OrderRecord[]> {
   const { data: orders, error } = await supabase
     .from("client_shopping")
     .select(
-      "id, full_name, email, phone, shipping_method, shipping_address, sub_total, shipping_total, tax, total_price, created_at",
+      "id, tradesperson_id, full_name, email, phone, shipping_method, shipping_address, sub_total, shipping_total, tax, total_price, created_at",
     )
     .eq("client_id", authData.user.id)
     .order("created_at", { ascending: false });
@@ -167,6 +164,7 @@ export async function fetchClientOrders(): Promise<OrderRecord[]> {
 
   return orders.map((o) => ({
     id: o.id as number,
+    tradespersonId: (o.tradesperson_id as string) ?? "",
     fullName: (o.full_name as string) ?? "",
     email: (o.email as string) ?? "",
     phone: (o.phone as string) ?? "",
@@ -257,9 +255,13 @@ export async function fetchProOrders(): Promise<ProOrderRecord[]> {
 }
 
 export async function updateOrderFulfillment(orderId: number): Promise<void> {
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData.user) throw new Error("Not authenticated");
+
   const { error } = await supabase
     .from("client_shopping")
     .update({ isDelivered: true })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .eq("tradesperson_id", authData.user.id);
   if (error) throw error;
 }

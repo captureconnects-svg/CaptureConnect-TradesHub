@@ -7,7 +7,8 @@ export type ActivityType =
   | "review"
   | "payment"
   | "order"
-  | "like";
+  | "like"
+  | "refund_request";
 
 export type ActivityRecord = {
   id: number;
@@ -68,10 +69,11 @@ export async function fetchProActivityStats(): Promise<{
   messages: number;
   payments: number;
   orders: number;
+  refundRequests: number;
 }> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) {
-    return { total: 0, reviews: 0, likes: 0, profileViews: 0, bookings: 0, messages: 0, payments: 0, orders: 0 };
+    return { total: 0, reviews: 0, likes: 0, profileViews: 0, bookings: 0, messages: 0, payments: 0, orders: 0, refundRequests: 0 };
   }
 
   const now = new Date().toISOString();
@@ -81,17 +83,18 @@ export async function fetchProActivityStats(): Promise<{
     .eq("tradesperson_id", authData.user.id)
     .gt("expired_at", now);
 
-  const counts = { total: 0, reviews: 0, likes: 0, profileViews: 0, bookings: 0, messages: 0, payments: 0, orders: 0 };
+  const counts = { total: 0, reviews: 0, likes: 0, profileViews: 0, bookings: 0, messages: 0, payments: 0, orders: 0, refundRequests: 0 };
   for (const row of (data ?? []) as Record<string, unknown>[]) {
     counts.total++;
     switch (row.activity_type as ActivityType) {
-      case "review":       counts.reviews++;      break;
-      case "like":         counts.likes++;        break;
-      case "profile_view": counts.profileViews++; break;
-      case "booking":      counts.bookings++;     break;
-      case "message":      counts.messages++;     break;
-      case "payment":      counts.payments++;     break;
-      case "order":        counts.orders++;       break;
+      case "review":         counts.reviews++;        break;
+      case "like":           counts.likes++;          break;
+      case "profile_view":   counts.profileViews++;   break;
+      case "booking":        counts.bookings++;        break;
+      case "message":        counts.messages++;        break;
+      case "payment":        counts.payments++;        break;
+      case "order":          counts.orders++;          break;
+      case "refund_request": counts.refundRequests++;  break;
     }
   }
   return counts;

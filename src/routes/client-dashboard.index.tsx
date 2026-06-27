@@ -23,12 +23,12 @@ import { supabase } from "@/lib/supabase";
 import { fetchStartingPricesForTraders } from "@/backend/client-trader-profile";
 import { fetchClientLikes, toggleClientLike } from "@/backend/client-likes";
 import { fetchRatingStatsForTraders } from "@/backend/client-reviews";
-import heroImg from "@/assets/dashboard-hero.jpg";
+import heroImg from "@/assets/landing-client.png";
 
 export const Route = createFileRoute("/client-dashboard/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — TradeHub" },
+      { title: "Dashboard — Capture Connect" },
       { name: "description", content: "Find vetted tradespeople, manage jobs, and track your bookings on TradeHub." },
     ],
   }),
@@ -265,20 +265,20 @@ function DashboardPage() {
             height={768}
             className="absolute inset-0 h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/85 to-background/20" />
+          <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
           <div className="relative z-10 p-8 md:p-14 max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               <Sparkles className="h-3 w-3" />
               {clientName ? `Welcome back, ${clientName}` : "Welcome back"}
             </div>
-            <h1 className="mt-4 text-3xl md:text-5xl font-bold leading-tight">
+            <h1 className="mt-4 text-3xl md:text-5xl font-bold leading-tight text-white drop-shadow-sm">
               Find the right trade for the job — today.
             </h1>
-            <p className="mt-4 text-base md:text-lg text-muted-foreground">
+            <p className="mt-4 text-base md:text-lg text-white/75">
               Browse vetted electricians, plumbers, builders and more. Compare ratings,
               book secure, and pay through escrow.
             </p>
-            <Button size="lg" className="mt-6" onClick={scrollToCategories}>
+            <Button size="lg" className="mt-6 bg-amber-500 hover:bg-amber-400 text-gray-900 font-semibold shadow-lg" onClick={scrollToCategories}>
               Browse Trades <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>

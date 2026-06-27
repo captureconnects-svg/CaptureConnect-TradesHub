@@ -24,7 +24,7 @@ import { submitVerificationRequest, getVerificationStatus } from "@/backend/pro-
 export const Route = createFileRoute("/pro-verification")({
   head: () => ({
     meta: [
-      { title: "Identity Verification — TradeHub Pro" },
+      { title: "Identity Verification — Capture Connect" },
       {
         name: "description",
         content: "Complete your identity verification to activate your TradeHub pro account.",
@@ -462,7 +462,7 @@ function ProVerificationPage() {
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
             <Hammer className="h-4 w-4 text-primary-foreground" />
           </div>
-          <span className="font-bold text-base">TradeHub Pro</span>
+          <span className="font-bold text-base">Capture Connect Pro</span>
         </Link>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <ShieldCheck className="h-4 w-4 text-primary" />

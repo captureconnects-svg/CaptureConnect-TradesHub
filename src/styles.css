@@ -2,6 +2,7 @@
 @source "../src";
 @import "tw-animate-css";
 
+@custom-variant dark (&:is(.dark *));
 @custom-variant light (&:is(.light *));
 
 /*
@@ -120,7 +121,7 @@
   --accent-foreground: oklch(0.99 0.005 80);
 
   --surface-elevated: oklch(0.97 0.006 80);
-  --gradient-hero: linear-gradient(135deg, oklch(0.99 0.005 80 / 0.95), oklch(0.99 0.005 80 / 0.7) 60%, oklch(0.99 0.005 80 / 0.95));
+  --gradient-hero: linear-gradient(135deg, oklch(0.14 0.018 250 / 0.85), oklch(0.14 0.018 250 / 0.58) 60%, oklch(0.14 0.018 250 / 0.78));
   --gradient-amber: linear-gradient(135deg, oklch(0.72 0.18 55), oklch(0.62 0.19 40));
   --shadow-glow: 0 20px 60px -20px oklch(0.68 0.18 55 / 0.35);
   --shadow-elevated: 0 10px 40px -10px oklch(0 0 0 / 0.15);

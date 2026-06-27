@@ -14,6 +14,9 @@ import {
   Trash2,
   Truck,
   Package,
+  Info,
+  RotateCcw,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +32,7 @@ import { submitShoppingOrder } from "@/backend/client-shopping";
 import { fetchDeliveryFee } from "@/backend/delivery-fee";
 
 export const Route = createFileRoute("/client-dashboard/checkout")({
-  head: () => ({ meta: [{ title: "Checkout — TradeHub" }] }),
+  head: () => ({ meta: [{ title: "Checkout — Capture Connect" }] }),
   component: CheckoutPage,
 });
 
@@ -48,10 +51,6 @@ function CheckoutPage() {
     phone: "",
     deliveryMethod: "pickup" as "pickup" | "delivery",
     address: "",
-    cardName: "",
-    cardNumber: "",
-    expiry: "",
-    cvv: "",
   });
 
   useEffect(() => {
@@ -95,8 +94,6 @@ function CheckoutPage() {
         phone: form.phone,
         shippingMethod: form.deliveryMethod,
         shippingAddress: form.deliveryMethod === "delivery" ? form.address : "",
-        nameOnCard: form.cardName,
-        last4Card: form.cardNumber.replace(/\s/g, "").slice(-4),
         subTotal: total,
         shippingTotal: shippingCost,
         tax,
@@ -307,70 +304,17 @@ function CheckoutPage() {
             </div>
 
             {/* Payment */}
-            <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
+            <div className="rounded-2xl border border-border bg-card p-6 space-y-3">
               <h2 className="text-base font-bold flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-primary" /> Payment Details
+                <CreditCard className="h-4 w-4 text-primary" /> Payment
               </h2>
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5 -mt-2">
-                <Lock className="h-3.5 w-3.5" /> Your payment info is encrypted and secure
-              </p>
-              <div className="space-y-1.5">
-                <Label htmlFor="cardName">Name on card</Label>
-                <Input
-                  id="cardName"
-                  placeholder="Jane Doe"
-                  required
-                  value={form.cardName}
-                  onChange={set("cardName")}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cardNumber">Card number</Label>
-                <Input
-                  id="cardNumber"
-                  placeholder="1234 5678 9012 3456"
-                  required
-                  maxLength={19}
-                  value={form.cardNumber}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, "").slice(0, 16);
-                    setForm((f) => ({
-                      ...f,
-                      cardNumber: digits.replace(/(\d{4})(?=\d)/g, "$1 "),
-                    }));
-                  }}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="expiry">Expiry (MM/YY)</Label>
-                  <Input
-                    id="expiry"
-                    placeholder="MM/YY"
-                    required
-                    maxLength={5}
-                    value={form.expiry}
-                    onChange={(e) => {
-                      const d = e.target.value.replace(/\D/g, "").slice(0, 4);
-                      setForm((f) => ({
-                        ...f,
-                        expiry: d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d,
-                      }));
-                    }}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="cvv">CVV</Label>
-                  <Input
-                    id="cvv"
-                    placeholder="123"
-                    required
-                    maxLength={3}
-                    value={form.cvv}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, cvv: e.target.value.replace(/\D/g, "").slice(0, 3) }))
-                    }
-                  />
+              <div className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-4">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Demo mode — no payment required</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                    Payment processing (Stripe) will be integrated before launch. Place your order now to reserve your items — no card details are collected.
+                  </p>
                 </div>
               </div>
             </div>
@@ -483,6 +427,30 @@ function CheckoutPage() {
                 <Lock className="h-4 w-4 shrink-0" />
                 <span>Your card details are never stored</span>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Info className="h-4 w-4 text-primary shrink-0" />
+                <span>Escrow Payment</span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Your payment is held securely in escrow and only released to the seller after you confirm satisfactory receipt of your order.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-4 space-y-2.5">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <RotateCcw className="h-4 w-4 text-primary shrink-0" />
+                <span>Return Policy</span>
+              </div>
+              <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed">
+                <li>· 14-day return window from delivery for eligible items</li>
+                <li>· Items must be unused and in original packaging</li>
+                <li>· Return shipping is at your cost unless the item is faulty or misrepresented</li>
+                <li>· Report damaged or incorrect items within 48 hrs of delivery</li>
+                <li>· Custom-made and perishable items are non-returnable</li>
+              </ul>
             </div>
           </div>
         </div>

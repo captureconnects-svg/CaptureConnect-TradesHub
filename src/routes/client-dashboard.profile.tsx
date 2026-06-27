@@ -19,7 +19,7 @@ import {
 export const Route = createFileRoute("/client-dashboard/profile")({
   head: () => ({
     meta: [
-      { title: "My Profile — TradeHub" },
+      { title: "My Profile — Capture Connect" },
       { name: "description", content: "Manage your TradeHub profile." },
     ],
   }),

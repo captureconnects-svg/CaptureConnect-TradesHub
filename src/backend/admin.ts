@@ -3,6 +3,12 @@ import { supabase } from "@/lib/supabase";
 const ALLOWED_ROLES = ["admin", "super_admin"] as const;
 type AdminRole = (typeof ALLOWED_ROLES)[number];
 
+function assertValidUUID(id: string): void {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error("Invalid ID format.");
+  }
+}
+
 export async function adminLogin(
   email: string,
   password: string,
@@ -26,30 +32,35 @@ export async function adminLogin(
     return { ok: false, adminId: null };
   }
 
-  localStorage.setItem("tradehub-admin", "true");
   localStorage.setItem("tradehub-admin-email", email);
   localStorage.setItem("tradehub-admin-name", String(adminRecord.name ?? email));
   localStorage.setItem("tradehub-admin-role", String(adminRecord.role));
   return { ok: true, adminId: authData.user.id };
 }
 
-export function isAdminAuthenticated(): boolean {
+/** Async server-side auth check — replaces the old localStorage flag. */
+export async function checkAdminAuth(): Promise<boolean> {
   try {
-    return localStorage.getItem("tradehub-admin") === "true";
+    await requireAdminRole();
+    return true;
   } catch {
     return false;
   }
 }
 
+/** Clears admin display state from localStorage (cosmetic only — not auth). */
 export function setAdminAuthenticated(value: boolean) {
-  if (value) {
-    localStorage.setItem("tradehub-admin", "true");
-  } else {
-    localStorage.removeItem("tradehub-admin");
+  if (!value) {
     localStorage.removeItem("tradehub-admin-email");
     localStorage.removeItem("tradehub-admin-name");
     localStorage.removeItem("tradehub-admin-role");
   }
+}
+
+/** Signs the admin out from Supabase and clears local display state. */
+export async function adminSignOut(): Promise<void> {
+  setAdminAuthenticated(false);
+  await supabase.auth.signOut();
 }
 
 export function setAdminEmail(email: string) {
@@ -59,6 +70,14 @@ export function setAdminEmail(email: string) {
 export function getAdminEmail(): string | null {
   try {
     return localStorage.getItem("tradehub-admin-email");
+  } catch {
+    return null;
+  }
+}
+
+export function getAdminName(): string | null {
+  try {
+    return localStorage.getItem("tradehub-admin-name");
   } catch {
     return null;
   }
@@ -77,19 +96,19 @@ export async function updateAdminPassword(
   currentPassword: string,
   newPassword: string,
 ): Promise<void> {
-  const email = getAdminEmail();
-  if (!email) throw new Error("No admin email found. Please log in again.");
+  const { data: { session } } = await supabase.auth.getSession();
+  const email = session?.user?.email;
+  if (!email) throw new Error("No active session. Please log in again.");
 
-  // Re-authenticate to verify the current password
   const { error: verifyError } = await supabase.auth.signInWithPassword({ email, password: currentPassword });
   if (verifyError) throw new Error("Current password is incorrect.");
 
   const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-  if (updateError) throw new Error(updateError.message);
+  if (updateError) throw new Error("Failed to update password. Please try again.");
 }
 
 /** Throws if the current Supabase session does not belong to an admin or super_admin. */
-async function requireAdminRole(): Promise<void> {
+export async function requireAdminRole(): Promise<void> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.user?.email) throw new Error("Unauthorized: no active session");
 
@@ -109,8 +128,8 @@ async function logAdminAction(
   details: Record<string, unknown>,
 ): Promise<void> {
   try {
-    const adminName = getAdminEmail() ?? "admin";
     const { data: { session } } = await supabase.auth.getSession();
+    const adminName = session?.user?.email ?? "admin";
     await supabase.from("audit_logs").insert({
       admin_id: session?.user?.id ?? null,
       admin_name: adminName,
@@ -124,6 +143,7 @@ async function logAdminAction(
 }
 
 export async function fetchAdminOverviewStats() {
+  await requireAdminRole();
   const [
     { count: clientCount },
     { count: proCount },
@@ -163,6 +183,7 @@ export async function fetchAdminOverviewStats() {
 }
 
 export async function fetchAllClients() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("client_profiles")
     .select("*")
@@ -172,6 +193,7 @@ export async function fetchAllClients() {
 }
 
 export async function fetchAllTradespeople() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("tradesperson_profiles")
     .select("*")
@@ -181,6 +203,7 @@ export async function fetchAllTradespeople() {
 }
 
 export async function fetchAllBookings() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("client_bookings")
     .select("*")
@@ -212,9 +235,14 @@ export type AdminBooking = {
   refunded: boolean;
   createdAt: string;
   updatedAt: string | null;
+  returnRequestId: number | null;
+  returnRequestStatus: string | null;
+  returnRefundType: string | null;
+  returnPartialAmount: number | null;
 };
 
 export async function fetchAdminBookings(): Promise<AdminBooking[]> {
+  await requireAdminRole();
   const { data: bookings, error } = await supabase
     .from("client_bookings")
     .select("*")
@@ -248,6 +276,29 @@ export async function fetchAdminBookings(): Promise<AdminBooking[]> {
     traderMap[t.id as string] = String(t.username ?? t.full_name ?? "Unknown");
   }
 
+  const bookingIds = bookings.map((b) => b.id as string);
+  let bookingReturnRequests: any[] = [];
+  if (bookingIds.length > 0) {
+    const { data: rrData } = await supabase
+      .from("return_request")
+      .select("id, booking_id, status, refund_type, partial_amount")
+      .in("booking_id", bookingIds);
+    bookingReturnRequests = rrData ?? [];
+  }
+
+  const returnByBooking: Record<string, { id: number; status: string; refundType: string | null; partialAmount: number | null }> = {};
+  for (const rr of bookingReturnRequests) {
+    const bid = rr.booking_id as string;
+    if (!returnByBooking[bid]) {
+      returnByBooking[bid] = {
+        id: rr.id as number,
+        status: rr.status as string,
+        refundType: (rr.refund_type as string) ?? null,
+        partialAmount: (rr.partial_amount as number) ?? null,
+      };
+    }
+  }
+
   return bookings.map((b) => {
     const clientId = b.client_id as string;
     const traderId = b.tradesperson_id as string;
@@ -255,6 +306,7 @@ export async function fetchAdminBookings(): Promise<AdminBooking[]> {
       name: String(b.full_name ?? "Unknown"),
       email: String(b.email ?? ""),
     };
+    const rr = returnByBooking[b.id as string] ?? null;
     return {
       id: b.id as string,
       clientId,
@@ -278,6 +330,10 @@ export async function fetchAdminBookings(): Promise<AdminBooking[]> {
       refunded: Boolean(b.refunded ?? false),
       createdAt: String(b.created_at ?? ""),
       updatedAt: (b.updated_at as string) ?? null,
+      returnRequestId: rr?.id ?? null,
+      returnRequestStatus: rr?.status ?? null,
+      returnRefundType: rr?.refundType ?? null,
+      returnPartialAmount: rr?.partialAmount ?? null,
     };
   });
 }
@@ -300,7 +356,23 @@ export async function updateAdminBookingStatus(id: string, status: string): Prom
   await logAdminAction(action, "booking", { bookingId: id, status });
 }
 
+export async function issueBookingRefund(id: string): Promise<void> {
+  await requireAdminRole();
+  const { error } = await supabase
+    .from("client_bookings")
+    .update({ refunded: true })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await supabase
+    .from("return_request")
+    .update({ status: "refunded" })
+    .eq("booking_id", id)
+    .eq("status", "pro_approved");
+  await logAdminAction("issue_booking_refund", "booking", { bookingId: id });
+}
+
 export async function fetchAllReviews() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("client_reviews")
     .select("*")
@@ -322,6 +394,7 @@ export type AdminReview = {
 };
 
 export async function fetchAdminReviews(): Promise<AdminReview[]> {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("client_reviews")
     .select("id, client_id, tradesperson_id, review_rating, review_title, review_descript, created_at")
@@ -393,14 +466,20 @@ export type AdminOrder = {
   tax: number;
   totalPrice: number;
   isDelivered: boolean | null;
+  refunded: boolean;
   createdAt: string;
   items: AdminOrderItem[];
+  returnRequestId: number | null;
+  returnRequestStatus: string | null;
+  returnRefundType: string | null;
+  returnPartialAmount: number | null;
 };
 
 export async function fetchAdminOrders(): Promise<AdminOrder[]> {
+  await requireAdminRole();
   const { data: orders, error } = await supabase
     .from("client_shopping")
-    .select("id, full_name, email, phone, shipping_method, shipping_address, sub_total, shipping_total, tax, total_price, isDelivered, created_at")
+    .select("id, full_name, email, phone, shipping_method, shipping_address, sub_total, shipping_total, tax, total_price, isDelivered, refunded, created_at")
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -493,21 +572,47 @@ export async function fetchAdminOrders(): Promise<AdminOrder[]> {
     });
   }
 
-  return orders.map((o) => ({
-    id: o.id as number,
-    fullName: String(o.full_name ?? "Unknown"),
-    email: String(o.email ?? ""),
-    phone: String(o.phone ?? ""),
-    shippingMethod: String(o.shipping_method ?? "pickup"),
-    shippingAddress: (o.shipping_address as string) ?? null,
-    subTotal: Number(o.sub_total ?? 0),
-    shippingTotal: Number(o.shipping_total ?? 0),
-    tax: Number(o.tax ?? 0),
-    totalPrice: Number(o.total_price ?? 0),
-    isDelivered: (o.isDelivered as boolean) ?? null,
-    createdAt: String(o.created_at ?? ""),
-    items: itemsByOrder[o.id as number] ?? [],
-  }));
+  const { data: orderReturnRequests } = await supabase
+    .from("return_request")
+    .select("id, order_id, status, refund_type, partial_amount")
+    .in("order_id", orderIds);
+
+  const returnByOrder: Record<number, { id: number; status: string; refundType: string | null; partialAmount: number | null }> = {};
+  for (const rr of orderReturnRequests ?? []) {
+    const oid = rr.order_id as number;
+    if (!returnByOrder[oid]) {
+      returnByOrder[oid] = {
+        id: rr.id as number,
+        status: rr.status as string,
+        refundType: (rr.refund_type as string) ?? null,
+        partialAmount: (rr.partial_amount as number) ?? null,
+      };
+    }
+  }
+
+  return orders.map((o) => {
+    const rr = returnByOrder[o.id as number] ?? null;
+    return {
+      id: o.id as number,
+      fullName: String(o.full_name ?? "Unknown"),
+      email: String(o.email ?? ""),
+      phone: String(o.phone ?? ""),
+      shippingMethod: String(o.shipping_method ?? "pickup"),
+      shippingAddress: (o.shipping_address as string) ?? null,
+      subTotal: Number(o.sub_total ?? 0),
+      shippingTotal: Number(o.shipping_total ?? 0),
+      tax: Number(o.tax ?? 0),
+      totalPrice: Number(o.total_price ?? 0),
+      isDelivered: (o.isDelivered as boolean) ?? null,
+      refunded: Boolean(o.refunded ?? false),
+      createdAt: String(o.created_at ?? ""),
+      items: itemsByOrder[o.id as number] ?? [],
+      returnRequestId: rr?.id ?? null,
+      returnRequestStatus: rr?.status ?? null,
+      returnRefundType: rr?.refundType ?? null,
+      returnPartialAmount: rr?.partialAmount ?? null,
+    };
+  });
 }
 
 export async function deleteAdminOrder(id: number): Promise<void> {
@@ -517,7 +622,23 @@ export async function deleteAdminOrder(id: number): Promise<void> {
   await logAdminAction("delete_order", "order", { orderId: id });
 }
 
+export async function issueOrderRefund(orderId: number): Promise<void> {
+  await requireAdminRole();
+  const { error } = await supabase
+    .from("client_shopping")
+    .update({ refunded: true })
+    .eq("id", orderId);
+  if (error) throw new Error(error.message);
+  await supabase
+    .from("return_request")
+    .update({ status: "refunded" })
+    .eq("order_id", orderId)
+    .eq("status", "pro_approved");
+  await logAdminAction("issue_order_refund", "order", { orderId });
+}
+
 export async function fetchAllOrders() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("client_shopping")
     .select("*")
@@ -527,6 +648,7 @@ export async function fetchAllOrders() {
 }
 
 export async function fetchAllConversations() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("conversations")
     .select("*")
@@ -536,6 +658,7 @@ export async function fetchAllConversations() {
 }
 
 export async function fetchAllMerchandise() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("tradesperson_SellersSpecialty")
     .select("*")
@@ -545,6 +668,7 @@ export async function fetchAllMerchandise() {
 }
 
 export async function fetchAllVerifications() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("verification_request")
     .select("*")
@@ -554,6 +678,7 @@ export async function fetchAllVerifications() {
 }
 
 export async function fetchAllTestimonials() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("landing_testimonials")
     .select("*")
@@ -577,6 +702,7 @@ export type AdminTestimonial = {
 };
 
 export async function fetchAdminTestimonials(): Promise<AdminTestimonial[]> {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("landing_testimonials")
     .select("*")
@@ -638,6 +764,7 @@ export type AdminVerification = {
 };
 
 export async function fetchAdminVerifications(): Promise<AdminVerification[]> {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("verification_request")
     .select("*")
@@ -672,6 +799,7 @@ export type VerificationDocument = {
 };
 
 export async function fetchVerificationDocuments(requestId: number): Promise<VerificationDocument[]> {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("verification_documents")
     .select("file_type, file_path")
@@ -680,21 +808,19 @@ export async function fetchVerificationDocuments(requestId: number): Promise<Ver
   if (error) throw new Error(error.message);
   if (!data || data.length === 0) return [];
 
-  const results: VerificationDocument[] = [];
-  for (const doc of data) {
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from("verification_documents")
-      .createSignedUrl(doc.file_path as string, 3600);
-
-    if (!signedError && signedData) {
-      results.push({
+  const ONE_DAY = 60 * 60 * 24;
+  const results = await Promise.all(
+    data.map(async (doc) => {
+      const { data: urlData } = await supabase.storage
+        .from("verification_documents")
+        .createSignedUrl(doc.file_path as string, ONE_DAY);
+      return {
         fileType: doc.file_type as string,
         filePath: doc.file_path as string,
-        url: signedData.signedUrl,
-      });
-    }
-  }
-
+        url: urlData?.signedUrl ?? "",
+      };
+    }),
+  );
   return results;
 }
 
@@ -715,20 +841,28 @@ export async function updateVerificationStatus(
   await logAdminAction(action, "verification", { verificationId: id, status, reason });
 }
 
+const ALLOWED_VERIFICATION_FIELDS = new Set(["status", "reason", "notes"]);
+
 export async function editVerification(
   id: number,
   updates: Record<string, unknown>,
 ): Promise<void> {
   await requireAdminRole();
+  const safeUpdates: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (ALLOWED_VERIFICATION_FIELDS.has(key)) safeUpdates[key] = value;
+  }
+  if (Object.keys(safeUpdates).length === 0) return;
   const { error } = await supabase
     .from("verification_request")
-    .update(updates)
+    .update(safeUpdates)
     .eq("id", id);
   if (error) throw new Error(error.message);
-  await logAdminAction("edit_verification", "verification", { verificationId: id, ...updates });
+  await logAdminAction("edit_verification", "verification", { verificationId: id, ...safeUpdates });
 }
 
 export async function fetchAllLikes() {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("client_likes")
     .select("*")
@@ -764,9 +898,11 @@ function toAdminStatus(raw: string | null): AdminUser["status"] {
 }
 
 export async function fetchAllUsers(): Promise<AdminUser[]> {
+  await requireAdminRole();
   const [
     { data: clients, error: clientsError },
     { data: pros, error: prosError },
+    { data: deleted },
   ] = await Promise.all([
     supabase
       .from("client_profiles")
@@ -775,6 +911,10 @@ export async function fetchAllUsers(): Promise<AdminUser[]> {
     supabase
       .from("tradesperson_profiles")
       .select("id, full_name, username, email, account_status, created_at, date_of_birth, location, profile_image, years_of_experience")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("deleted_accounts")
+      .select("*")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -824,7 +964,22 @@ export async function fetchAllUsers(): Promise<AdminUser[]> {
     specialties: specialtyMap[p.id as string] ?? [],
   }));
 
-  return [...clientUsers, ...proUsers].sort(
+  // Collect IDs already represented in live profiles so deleted records don't duplicate
+  const liveIds = new Set([...clientUsers, ...proUsers].map((u) => u.id));
+
+  const deletedUsers: AdminUser[] = (deleted ?? [])
+    .filter((d) => !liveIds.has(d.user_id as string))
+    .map((d) => ({
+      id: d.user_id as string,
+      fullName: String(d.full_name ?? d.username ?? "Deleted User"),
+      username: String(d.username ?? ""),
+      email: String(d.email ?? ""),
+      type: (d.user_type as string) === "tradesperson" ? "Pro" : "Client",
+      status: "Deleted" as const,
+      joinDate: String(d.joined_at ?? d.created_at ?? ""),
+    }));
+
+  return [...clientUsers, ...proUsers, ...deletedUsers].sort(
     (a, b) => new Date(b.joinDate).getTime() - new Date(a.joinDate).getTime(),
   );
 }
@@ -911,10 +1066,65 @@ export async function deleteAdminUser(
   type: "Client" | "Pro",
 ): Promise<void> {
   await requireAdminRole();
-  const table =
-    type === "Client" ? "client_profiles" : "tradesperson_profiles";
-  const { error } = await supabase.from(table).delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  assertValidUUID(id);
+
+  // Fetch profile info before deleting so we can write the tombstone record
+  const [{ data: clientProfile }, { data: proProfile }] = await Promise.all([
+    supabase.from("client_profiles").select("username, full_name, email, role, created_at").eq("id", id).maybeSingle(),
+    supabase.from("tradesperson_profiles").select("username, full_name, email, role, created_at").eq("id", id).maybeSingle(),
+  ]);
+  const profile = clientProfile ?? proProfile;
+
+  // Insert tombstone into deleted_accounts before wiping data
+  const { error: tombstoneError } = await supabase.from("deleted_accounts").insert({
+    user_id: id,
+    username: profile?.username ?? null,
+    full_name: profile?.full_name ?? null,
+    email: profile?.email ?? null,
+    role: profile?.role ?? null,
+    user_type: type === "Client" ? "client" : "tradesperson",
+    deleted_by: "admin",
+    joined_at: profile?.created_at ?? null,
+  });
+  if (tombstoneError) throw new Error(`Failed to record deletion: ${tombstoneError.message}`);
+
+  // Fetch child record IDs so we can cascade-delete in tables that need it
+  const [{ data: convos }, { data: products }] = await Promise.all([
+    supabase.from("conversations").select("id").or(`client_id.eq.${id},tradesperson_id.eq.${id}`),
+    supabase.from("tradesperson_SellersSpecialty").select("id").eq("tradesperson_id", id),
+  ]);
+
+  // Delete grandchild rows first
+  const childDeletes: PromiseLike<unknown>[] = [];
+  if (convos?.length) {
+    const ids = convos.map((r) => r.id as number);
+    childDeletes.push(supabase.from("conversations_msg").delete().in("convo_id", ids));
+  }
+  if (products?.length) {
+    const ids = products.map((r) => r.id as string);
+    childDeletes.push(supabase.from("tradesperson_Sell.Spe.variant").delete().in("product_id", ids));
+    childDeletes.push(supabase.from("tradesperson_Sell.Spe.images").delete().in("product_id", ids));
+  }
+  if (childDeletes.length) await Promise.all(childDeletes);
+
+  // Delete all parent-level user data
+  await Promise.all([
+    supabase.from("conversations").delete().or(`client_id.eq.${id},tradesperson_id.eq.${id}`),
+    supabase.from("client_likes").delete().or(`client_id.eq.${id},tradesperson_id.eq.${id}`),
+    supabase.from("client_reviews").delete().or(`client_id.eq.${id},tradesperson_id.eq.${id}`),
+    supabase.from("client_activity").delete().or(`client_id.eq.${id},tradesperson_id.eq.${id}`),
+    supabase.from("tradesperson_SellersSpecialty").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_WorkDays").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_FAQ").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_certification").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_packages").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_addOns").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_specialty").delete().eq("tradesperson_id", id),
+    supabase.from("tradesperson_discountCode").delete().eq("tradesperson_id", id),
+    supabase.from("client_profiles").delete().eq("id", id),
+    supabase.from("tradesperson_profiles").delete().eq("id", id),
+  ]);
+
   await logAdminAction("delete_user", "user", { userId: id, userType: type });
 }
 
@@ -929,6 +1139,7 @@ export type AdminActivityItem = {
 };
 
 export async function fetchAdminRecentActivity(limit = 20): Promise<AdminActivityItem[]> {
+  await requireAdminRole();
   const { data } = await supabase
     .from("client_activity")
     .select("id, tradesperson_id, activity_type, description, created_at")
@@ -965,6 +1176,7 @@ export type AdminQuickStats = {
 };
 
 export async function fetchAdminQuickStats(): Promise<AdminQuickStats> {
+  await requireAdminRole();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayIso = today.toISOString();
@@ -1012,6 +1224,7 @@ export type AdminTopPro = {
 };
 
 export async function fetchAdminTopTradespeople(limit = 5): Promise<AdminTopPro[]> {
+  await requireAdminRole();
   const [{ data: bookings }, { data: reviews }, { data: profiles }] = await Promise.all([
     supabase.from("client_bookings").select("tradesperson_id"),
     supabase.from("client_reviews").select("tradesperson_id, review_rating"),
@@ -1065,6 +1278,7 @@ export type AdminLoyalClient = {
 };
 
 export async function fetchAdminLoyalClients(limit = 5): Promise<AdminLoyalClient[]> {
+  await requireAdminRole();
   const [{ data: bookings }, { data: profiles }] = await Promise.all([
     supabase.from("client_bookings").select("client_id"),
     supabase.from("client_profiles").select("id, username, full_name, email"),
@@ -1110,6 +1324,7 @@ export type AuditLogEntry = {
 };
 
 export async function fetchAuditLogs(limit = 500): Promise<AuditLogEntry[]> {
+  await requireAdminRole();
   const { data, error } = await supabase
     .from("audit_logs")
     .select("id, admin_id, admin_name, action, target_type, details, created_at")
@@ -1140,6 +1355,7 @@ export type SecurityMetrics = {
 };
 
 export async function fetchSecurityMetrics(): Promise<SecurityMetrics> {
+  await requireAdminRole();
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const [
@@ -1168,6 +1384,7 @@ export async function fetchSecurityMetrics(): Promise<SecurityMetrics> {
 }
 
 export async function fetchSuspendedUsers(): Promise<AdminUser[]> {
+  await requireAdminRole();
   const [{ data: clients }, { data: pros }] = await Promise.all([
     supabase.from("client_profiles").select("*").eq("account_status", "suspended").order("created_at", { ascending: false }),
     supabase.from("tradesperson_profiles").select("*").eq("account_status", "suspended").order("created_at", { ascending: false }),
@@ -1215,7 +1432,7 @@ export type AdminSettings = {
 };
 
 const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
-  siteName: "TradeHub",
+  siteName: "Capture Connect - TradeHub Marketplace",
   maintenanceMode: false,
   allowRegistrations: true,
   sessionTimeoutHours: 24,
@@ -1223,19 +1440,52 @@ const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   auditLogRetentionDays: 90,
 };
 
-export function getAdminSettings(): AdminSettings {
+export async function getAdminSettings(): Promise<AdminSettings> {
   try {
-    const raw = localStorage.getItem("tradehub-admin-settings");
-    if (!raw) return { ...DEFAULT_ADMIN_SETTINGS };
-    return { ...DEFAULT_ADMIN_SETTINGS, ...JSON.parse(raw) };
+    const { data } = await supabase
+      .from("admin_settings")
+      .select("site_name, maintenance_mode, allow_registrations, session_timeout_hours, default_currency, audit_log_retention_days")
+      .eq("id", 1)
+      .maybeSingle();
+    if (!data) return { ...DEFAULT_ADMIN_SETTINGS };
+    return {
+      siteName: String(data.site_name ?? DEFAULT_ADMIN_SETTINGS.siteName),
+      maintenanceMode: Boolean(data.maintenance_mode ?? DEFAULT_ADMIN_SETTINGS.maintenanceMode),
+      allowRegistrations: Boolean(data.allow_registrations ?? DEFAULT_ADMIN_SETTINGS.allowRegistrations),
+      sessionTimeoutHours: Number(data.session_timeout_hours ?? DEFAULT_ADMIN_SETTINGS.sessionTimeoutHours),
+      defaultCurrency: String(data.default_currency ?? DEFAULT_ADMIN_SETTINGS.defaultCurrency),
+      auditLogRetentionDays: Number(data.audit_log_retention_days ?? DEFAULT_ADMIN_SETTINGS.auditLogRetentionDays),
+    };
   } catch {
     return { ...DEFAULT_ADMIN_SETTINGS };
   }
 }
 
+async function purgeOldAuditLogs(retentionDays: number): Promise<void> {
+  if (retentionDays <= 0) return;
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  await supabase.from("audit_logs").delete().lt("created_at", cutoff);
+}
+
 export async function saveAdminSettings(settings: AdminSettings): Promise<void> {
   await requireAdminRole();
-  localStorage.setItem("tradehub-admin-settings", JSON.stringify(settings));
+  const { error } = await supabase
+    .from("admin_settings")
+    .upsert({
+      id: 1,
+      site_name: settings.siteName,
+      maintenance_mode: settings.maintenanceMode,
+      allow_registrations: settings.allowRegistrations,
+      session_timeout_hours: settings.sessionTimeoutHours,
+      default_currency: settings.defaultCurrency,
+      audit_log_retention_days: settings.auditLogRetentionDays,
+      updated_at: new Date().toISOString(),
+    });
+  if (error) {
+    console.error("[admin] saveAdminSettings:", error.message);
+    throw new Error("Failed to save settings. Please try again.");
+  }
+  await purgeOldAuditLogs(settings.auditLogRetentionDays);
   await logAdminAction("change_platform_settings", "settings", { settings });
 }
 
@@ -1243,28 +1493,48 @@ export async function saveAdminSettings(settings: AdminSettings): Promise<void> 
 
 export type AdminLoginRecord = {
   at: string;
+  name: string | null;
   email: string;
   adminId: string | null;
   ip: string | null;
 };
 
-export function recordAdminLogin(
+export async function recordAdminLogin(
   email: string,
   adminId: string | null,
   ip: string | null,
-): void {
+  name: string | null = null,
+): Promise<void> {
   try {
-    const history = getAdminLoginHistory();
-    history.unshift({ at: new Date().toISOString(), email, adminId, ip });
-    localStorage.setItem("tradehub-admin-login-history", JSON.stringify(history.slice(0, 20)));
+    await supabase.from("audit_logs").insert({
+      admin_id: adminId,
+      admin_name: name ?? email,
+      action: "admin_login",
+      target_type: "session",
+      details: JSON.stringify({ email, ip }),
+    });
   } catch {}
 }
 
-export function getAdminLoginHistory(): AdminLoginRecord[] {
+export async function getAdminLoginHistory(): Promise<AdminLoginRecord[]> {
   try {
-    const raw = localStorage.getItem("tradehub-admin-login-history");
-    if (!raw) return [];
-    return JSON.parse(raw) as AdminLoginRecord[];
+    const { data } = await supabase
+      .from("audit_logs")
+      .select("admin_id, admin_name, created_at, details")
+      .eq("action", "admin_login")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    return (data ?? []).map((r) => {
+      let details: Record<string, unknown> = {};
+      try { details = JSON.parse((r.details as string) ?? "{}"); } catch {}
+      return {
+        at: r.created_at as string,
+        name: (r.admin_name as string) ?? null,
+        email: (details.email as string) ?? "",
+        adminId: (r.admin_id as string) ?? null,
+        ip: (details.ip as string) ?? null,
+      };
+    });
   } catch {
     return [];
   }

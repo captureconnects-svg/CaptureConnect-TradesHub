@@ -38,7 +38,7 @@ import {
 export const Route = createFileRoute("/client-dashboard/testimonials")({
   head: () => ({
     meta: [
-      { title: "My Testimonials — TradeHub" },
+      { title: "My Testimonials — Capture Connect" },
       { name: "description", content: "Upload and manage your video testimonials." },
     ],
   }),

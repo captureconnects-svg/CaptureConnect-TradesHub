@@ -27,7 +27,7 @@ export const Route = createFileRoute("/client-dashboard/category/$slug")({
   },
   head: ({ loaderData }) => ({
     meta: [
-      { title: `${loaderData?.category.name ?? "Category"} — TradeHub` },
+      { title: `${loaderData?.category.name ?? "Category"} — Capture Connect` },
       {
         name: "description",
         content: `Browse verified ${loaderData?.category.name.toLowerCase() ?? "tradespeople"} on TradeHub.`,

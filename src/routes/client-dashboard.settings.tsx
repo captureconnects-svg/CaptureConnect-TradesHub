@@ -1,20 +1,19 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowLeft, Lock, Trash2, Briefcase } from "lucide-react";
+import { ArrowLeft, Lock, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DashboardHeader } from "@/components/trade/DashboardHeader";
 import { toast } from "sonner";
 import { changePassword, deleteAccount } from "@/backend/account-settings";
-import { switchToPro } from "@/backend/switch-account";
+import { switchToProAccount } from "@/backend/switch-account";
 
 export const Route = createFileRoute("/client-dashboard/settings")({
   head: () => ({
     meta: [
-      { title: "Settings — TradeHub" },
+      { title: "Settings — Capture Connect" },
       { name: "description", content: "Manage your TradeHub account settings." },
     ],
   }),
@@ -30,7 +29,7 @@ function SettingsPage() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [switchingToPro, setSwitchingToPro] = useState(false);
-  const [showSwitchConfirm, setShowSwitchConfirm] = useState(false);
+  const [confirmSwitchToPro, setConfirmSwitchToPro] = useState(false);
 
   async function handleChangePassword() {
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -60,14 +59,18 @@ function SettingsPage() {
   }
 
   async function handleSwitchToPro() {
+    if (!confirmSwitchToPro) {
+      setConfirmSwitchToPro(true);
+      return;
+    }
     setSwitchingToPro(true);
-    setShowSwitchConfirm(false);
     try {
-      await switchToPro();
-      toast.success("Switched to pro account");
-      navigate({ to: "/pro-dashboard" });
+      await switchToProAccount();
+      toast.success("Switched to pro account. Please sign in as a pro.");
+      navigate({ to: "/pro-login-signup" });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to switch account");
+      setConfirmSwitchToPro(false);
     } finally {
       setSwitchingToPro(false);
     }
@@ -104,10 +107,8 @@ function SettingsPage() {
           <h1 className="text-2xl font-bold">Settings</h1>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          {/* Left column */}
-          <div className="space-y-6">
-            {/* Change Password */}
+        <div className="max-w-4xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-6 items-start">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -148,70 +149,61 @@ function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Danger zone */}
-            <Card className="border-destructive/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base text-destructive flex items-center gap-2">
-                  <Trash2 className="h-4 w-4" /> Danger Zone
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Once you delete your account, all your data will be permanently removed. This
-                  action cannot be undone.
-                </p>
-                {confirmingDelete && (
-                  <p className="text-sm text-destructive font-medium mb-2">
-                    Are you sure? Click again to permanently delete your account.
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-4 w-4" /> Switch Account
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Switch to your pro account. Your client profile will be deactivated and you'll be signed out to sign in as a pro.
                   </p>
-                )}
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleDeleteAccount}
-                  disabled={deletingAccount}
-                >
-                  {deletingAccount ? "Deleting..." : confirmingDelete ? "Yes, Delete My Account" : "Delete Account"}
-                </Button>
-              </CardContent>
-            </Card>
+                  {confirmSwitchToPro && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+                      Are you sure? Click again to switch accounts.
+                    </p>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSwitchToPro}
+                    disabled={switchingToPro}
+                  >
+                    {switchingToPro ? "Switching..." : confirmSwitchToPro ? "Yes, Switch to Pro" : "Switch to Pro Account"}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="border-destructive/30">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-destructive flex items-center gap-2">
+                    <Trash2 className="h-4 w-4" /> Danger Zone
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Once you delete your account, all your data will be permanently removed. This
+                    action cannot be undone.
+                  </p>
+                  {confirmingDelete && (
+                    <p className="text-sm text-destructive font-medium mb-2">
+                      Are you sure? Click again to permanently delete your account.
+                    </p>
+                  )}
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleDeleteAccount}
+                    disabled={deletingAccount}
+                  >
+                    {deletingAccount ? "Deleting..." : confirmingDelete ? "Yes, Delete My Account" : "Delete Account"}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           </div>
-
-          {/* Right column — Switch to Trader */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Briefcase className="h-4 w-4" /> Switch to Trader Account
-              </CardTitle>
-              <CardDescription>
-                List your services and receive bookings from customers.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button onClick={() => setShowSwitchConfirm(true)} disabled={switchingToPro}>
-                {switchingToPro ? "Switching..." : "Switch to Trader"}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Dialog open={showSwitchConfirm} onOpenChange={setShowSwitchConfirm}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Switch to Trader Account?</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">
-                This will create a trader profile for your account and redirect you to the pro dashboard. Your client profile will remain saved.
-              </p>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowSwitchConfirm(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleSwitchToPro} disabled={switchingToPro}>
-                  {switchingToPro ? "Switching..." : "Yes, Switch to Trader"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </div>
       </main>
     </div>

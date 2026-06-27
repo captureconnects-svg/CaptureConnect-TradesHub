@@ -17,7 +17,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/client-dashboard/messages")({
   head: () => ({
     meta: [
-      { title: "Messages — TradeHub" },
+      { title: "Messages — Capture Connect" },
       { name: "description", content: "Your conversations with tradespeople on TradeHub." },
     ],
   }),

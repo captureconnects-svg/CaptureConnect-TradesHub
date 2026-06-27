@@ -4,12 +4,19 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useLocation,
 } from "@tanstack/react-router";
 
 import { ThemeProvider } from "@/lib/theme";
 import { CurrencyProvider } from "@/lib/currency";
 import { CartProvider } from "@/lib/cart-context";
 import { Toaster } from "@/components/ui/sonner";
+import { useState, useEffect, useRef } from "react";
+import { Wrench } from "lucide-react";
+import { getAdminSettings } from "@/backend/admin";
+import { supabase } from "@/lib/supabase";
+
+export const SESSION_START_KEY = "tradehub-session-start";
 
 function NotFoundComponent() {
   return (
@@ -68,6 +75,36 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+function MaintenancePage({ siteName }: { siteName: string }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground px-4">
+      <div className="max-w-md w-full text-center space-y-6">
+        <div className="flex justify-center">
+          <div className="h-20 w-20 rounded-2xl bg-primary/10 flex items-center justify-center">
+            <Wrench className="h-10 w-10 text-primary" />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">{siteName}</h1>
+          <h2 className="text-xl font-semibold text-foreground">Under Maintenance</h2>
+          <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
+            We're performing scheduled maintenance to improve your experience.
+            We'll be back up and running shortly — thank you for your patience.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 justify-center">
+          <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+          <div className="h-2 w-2 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+          <div className="h-2 w-2 rounded-full bg-primary animate-bounce" />
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
@@ -76,6 +113,73 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const location = useLocation();
+
+  const [appSettings, setAppSettings] = useState<{
+    maintenanceMode: boolean;
+    siteName: string;
+    sessionTimeoutHours: number;
+  } | null>(null);
+
+  // Ref holds latest timeout value so the interval doesn't need to re-subscribe
+  const timeoutHoursRef = useRef<number | null>(null);
+
+  function checkSessionTimeout(hours: number) {
+    const sessionStart = Number(localStorage.getItem(SESSION_START_KEY) || "0");
+    if (!sessionStart) return;
+    const elapsed = Date.now() - sessionStart;
+    const limitMs = hours * 60 * 60 * 1000;
+    if (elapsed > limitMs) {
+      localStorage.removeItem(SESSION_START_KEY);
+      supabase.auth.signOut().then(() => {
+        window.location.href = "/";
+      });
+    }
+  }
+
+  useEffect(() => {
+    getAdminSettings().then((s) => {
+      setAppSettings({
+        maintenanceMode: s.maintenanceMode,
+        siteName: s.siteName,
+        sessionTimeoutHours: s.sessionTimeoutHours,
+      });
+      timeoutHoursRef.current = s.sessionTimeoutHours;
+      // Immediate check on page load
+      checkSessionTimeout(s.sessionTimeoutHours);
+    });
+
+    // Periodic check while user is on the page
+    const interval = setInterval(() => {
+      if (timeoutHoursRef.current === null) return;
+      checkSessionTimeout(timeoutHoursRef.current);
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const isAdminPath = location.pathname.startsWith("/admin");
+
+  // Suppress render until settings are fetched to prevent content flash
+  if (appSettings === null) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <div className="min-h-screen bg-background" />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
+
+  if (appSettings.maintenanceMode && !isAdminPath) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MaintenancePage siteName={appSettings.siteName} />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

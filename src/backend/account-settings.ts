@@ -22,6 +22,21 @@ export async function deleteAccount(): Promise<void> {
   if (!userData.user) throw new Error("Not authenticated");
   const uid = userData.user.id;
 
+  // Step 0: Capture user info and write tombstone record before any data is removed
+  const [{ data: clientProfile }, { data: proProfile }] = await Promise.all([
+    supabase.from("client_profiles").select("username, full_name, email, role, created_at").eq("id", uid).maybeSingle(),
+    supabase.from("tradesperson_profiles").select("username, full_name, email, role, created_at").eq("id", uid).maybeSingle(),
+  ]);
+  const profile = clientProfile ?? proProfile;
+  const { error: tombstoneError } = await supabase.from("deleted_accounts").insert({
+    user_id: uid,
+    username: profile?.username ?? null,
+    email: profile?.email ?? userData.user.email ?? null,
+    role: profile?.role ?? null,
+    deleted_by: "self",
+  });
+  if (tombstoneError) throw new Error(`Failed to record deletion: ${tombstoneError.message}`);
+
   // Step 1: Fetch parent IDs needed to delete child rows
   const [
     { data: convos },

@@ -147,6 +147,14 @@ export async function fetchMessages(convoId: number): Promise<ConversationMessag
   if (!authData.user) return [];
   const uid = authData.user.id;
 
+  const { data: convo } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", convoId)
+    .or(`client_id.eq.${uid},tradesperson_id.eq.${uid}`)
+    .maybeSingle();
+  if (!convo) return [];
+
   const { data: msgs } = await supabase
     .from("conversations_msg")
     .select("id, convo_id, sender_id, content, created_at, file_url")
@@ -155,15 +163,30 @@ export async function fetchMessages(convoId: number): Promise<ConversationMessag
 
   if (!msgs || msgs.length === 0) return [];
 
-  return msgs.map((m) => ({
-    id: m.id as number,
-    convoId: m.convo_id as number,
-    senderId: m.sender_id as string,
-    content: m.content as string,
-    createdAt: m.created_at as string,
-    isOwn: m.sender_id === uid,
-    fileUrl: m.file_url as string | null,
-  }));
+  const SIGNED_URL_EXPIRY = 3600;
+  const messagesWithUrls = await Promise.all(
+    msgs.map(async (m) => {
+      let fileUrl = m.file_url as string | null;
+      // Stored paths (non-http) need a signed URL; old full URLs pass through as-is.
+      if (fileUrl && !fileUrl.startsWith("http")) {
+        const { data: signed } = await supabase.storage
+          .from("conversations")
+          .createSignedUrl(fileUrl, SIGNED_URL_EXPIRY);
+        fileUrl = signed?.signedUrl ?? null;
+      }
+      return {
+        id: m.id as number,
+        convoId: m.convo_id as number,
+        senderId: m.sender_id as string,
+        content: m.content as string,
+        createdAt: m.created_at as string,
+        isOwn: m.sender_id === uid,
+        fileUrl,
+      };
+    }),
+  );
+
+  return messagesWithUrls;
 }
 
 export async function sendMessage(params: {
@@ -174,12 +197,21 @@ export async function sendMessage(params: {
 }): Promise<ConversationMessage> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) throw new Error("Not authenticated");
+  const uid = authData.user.id;
+
+  const { data: convo } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("id", params.convoId)
+    .or(`client_id.eq.${uid},tradesperson_id.eq.${uid}`)
+    .maybeSingle();
+  if (!convo) throw new Error("Conversation not found or access denied");
 
   const { data: msgData, error } = await supabase
     .from("conversations_msg")
     .insert({
       convo_id: params.convoId,
-      sender_id: authData.user.id,
+      sender_id: uid,
       content: params.content,
       file_url: params.fileUrl ?? null,
     })
@@ -198,7 +230,7 @@ export async function sendMessage(params: {
       const { data: cp } = await supabase
         .from("client_profiles")
         .select("full_name, username")
-        .eq("id", authData.user!.id)
+        .eq("id", uid)
         .single();
       const name =
         (cp?.username as string | null)?.trim() ||
@@ -208,7 +240,7 @@ export async function sendMessage(params: {
         tradespersonId: params.tradespersonId!,
         activityType: "message",
         description: `${name} sent you a message`,
-        clientId: authData.user!.id,
+        clientId: uid,
       });
     })().catch(() => {});
   }
@@ -224,8 +256,17 @@ export async function sendMessage(params: {
   };
 }
 
+const CONVO_ALLOWED_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+};
+
 async function uploadFileToStorage(convoId: number, file: File): Promise<string> {
-  const ext = file.name.split(".").pop() ?? "bin";
+  const ext = CONVO_ALLOWED_TYPES[file.type];
+  if (!ext) throw new Error("Unsupported file type. Allowed: images, PDF, TXT, DOC, DOCX.");
   const path = `${convoId}/${Date.now()}.${ext}`;
 
   const { error } = await supabase.storage
@@ -233,8 +274,8 @@ async function uploadFileToStorage(convoId: number, file: File): Promise<string>
     .upload(path, file, { upsert: true, contentType: file.type || "application/octet-stream" });
 
   if (error) throw new Error(error.message || "File upload failed");
-  const { data } = supabase.storage.from("conversations").getPublicUrl(path);
-  return data.publicUrl;
+  // Return the storage path; fetchMessages generates short-lived signed URLs on read.
+  return path;
 }
 
 export async function sendMessageWithFile(params: {

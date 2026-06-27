@@ -19,20 +19,24 @@ export type TraderRatingStats = {
 
 export async function submitClientReview(params: {
   tradespersonId: string;
+  bookingId?: string;
   rating: number;
   title: string;
   description: string;
-}): Promise<void> {
+}): Promise<number> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) throw new Error("Not authenticated");
 
-  await supabase.from("client_reviews").insert({
+  const { data, error } = await supabase.from("client_reviews").insert({
     client_id: authData.user.id,
     tradesperson_id: params.tradespersonId,
     review_rating: params.rating,
     review_title: params.title,
     review_descript: params.description,
-  });
+    ...(params.bookingId ? { booking_id: params.bookingId } : {}),
+  }).select("id").single();
+
+  if (error || !data) throw error ?? new Error("Review insert returned no data");
 
   (async () => {
     const { data: cp } = await supabase
@@ -51,6 +55,8 @@ export async function submitClientReview(params: {
       clientId: authData.user!.id,
     });
   })().catch(() => {});
+
+  return data.id as number;
 }
 
 export async function fetchTraderReviews(tradespersonId: string): Promise<ClientReview[]> {
@@ -184,6 +190,26 @@ export async function fetchRatingStatsForTraders(
         totalReviews: ratings.length,
       };
     }
+  }
+  return result;
+}
+
+export async function fetchClientBookingReviews(
+  bookingIds: string[],
+): Promise<Record<string, number>> {
+  if (bookingIds.length === 0) return {};
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData.user) return {};
+
+  const { data } = await supabase
+    .from("client_reviews")
+    .select("id, booking_id")
+    .eq("client_id", authData.user.id)
+    .in("booking_id", bookingIds);
+
+  const result: Record<string, number> = {};
+  for (const r of data ?? []) {
+    if (r.booking_id) result[r.booking_id as string] = r.id as number;
   }
   return result;
 }

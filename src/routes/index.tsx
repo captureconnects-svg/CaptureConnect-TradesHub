@@ -5,21 +5,21 @@ import { ThemeToggle } from "@/lib/theme";
 import { CurrencySelect } from "@/lib/currency";
 import { FooterSection } from "@/components/trade/FooterSection";
 import { Hammer, TrendingUp, Users, Briefcase, ShieldCheck, ArrowRight, Star, CheckCircle2 } from "lucide-react";
-import heroImg from "@/assets/hero-trades.jpg";
-import entrepreneurImg from "@/assets/entrepreneur.jpg";
-import clientImg from "@/assets/client-hire.jpg";
+import heroImg from "@/assets/landing-client.png";
+import entrepreneurImg from "@/assets/pro-landing.png";
+import clientImg from "@/assets/client-landing.png";
 import { fetchPageStats, type PageStats } from "@/backend/landing-reviews";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "TradeHub — Where Every Trade Builds a Business" },
+      { title: "Capture Connect - TradeHub Marketplace — Where Every Trade Builds a Business" },
       {
         name: "description",
         content:
           "The all-trades marketplace built for entrepreneurs. Connect skilled tradespeople with clients and grow your trade into a thriving business.",
       },
-      { property: "og:title", content: "TradeHub — Where Every Trade Builds a Business" },
+      { property: "og:title", content: "Capture Connect - TradeHub Marketplace — Where Every Trade Builds a Business" },
       {
         property: "og:description",
         content:
@@ -56,7 +56,7 @@ function Index() {
             <span className="grid h-8 w-8 place-items-center rounded-md bg-amber-500 text-white">
               <Hammer className="h-4 w-4" />
             </span>
-            TradeHub
+            Capture Connect
           </a>
           <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
             <a href="#clients" className="hover:text-foreground transition-colors">For Clients</a>
@@ -77,7 +77,7 @@ function Index() {
           alt="Skilled tradespeople working on a construction site"
           width={1920}
           height={1080}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-gullw-full object-cover"
         />
         <div
           className="absolute inset-0"
@@ -168,7 +168,7 @@ function Index() {
               ))}
             </ul>
             <Button size="lg" className="mt-10 bg-amber-500 hover:bg-amber-400 text-gray-900 font-semibold shadow-md" asChild>
-              <Link to="/client-dashboard">Post a job free <ArrowRight className="ml-1 h-4 w-4" /></Link>
+              <Link to="/client-login-signup">Post a job free <ArrowRight className="ml-1 h-4 w-4" /></Link>
             </Button>
           </div>
         </div>
@@ -240,7 +240,7 @@ function Index() {
           </p>
           <div className="mt-10 flex flex-wrap justify-center gap-4">
             <Button size="lg" className="bg-amber-500 hover:bg-amber-400 text-gray-900 font-semibold shadow-lg" asChild>
-              <Link to="/client-dashboard">Hire a Pro today</Link>
+              <Link to="/client-login-signup">Hire a Pro today</Link>
             </Button>
             <Button size="lg" className="border-2 border-foreground text-foreground bg-transparent hover:bg-foreground hover:text-background font-semibold transition-colors" asChild>
               <Link to="/pro-login-signup" search={{ mode: "signup" }}>Join as a Tradesperson</Link>

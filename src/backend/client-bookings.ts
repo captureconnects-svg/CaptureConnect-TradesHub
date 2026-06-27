@@ -27,6 +27,7 @@ export type BookingRecord = {
   upcoming: boolean;
   reviewed?: boolean;
   createdAt: string;
+  tradespersonId: string;
 };
 
 export async function submitBooking(params: {
@@ -91,6 +92,17 @@ export async function submitBookingAddons(
 ): Promise<void> {
   if (addons.length === 0) return;
 
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData.user) throw new Error("Not authenticated");
+
+  const { data: booking } = await supabase
+    .from("client_bookings")
+    .select("id")
+    .eq("id", bookingId)
+    .eq("client_id", authData.user.id)
+    .maybeSingle();
+  if (!booking) throw new Error("Booking not found");
+
   const { error } = await supabase
     .from("client_bookings.AddOns")
     .insert(
@@ -121,6 +133,8 @@ export type ProBookingRecord = {
   totalPrice: number;
   tip: number;
   status: "confirmed" | "pending" | "completed" | "cancelled";
+  paymentStatus: "paid" | "unpaid" | null;
+  refunded: boolean;
   createdAt: string;
 };
 
@@ -131,7 +145,7 @@ export async function fetchProBookings(): Promise<ProBookingRecord[]> {
   const { data: bookings } = await supabase
     .from("client_bookings")
     .select(
-      "id, full_name, email, phone, service, request_date, request_time, duration, location, notes, total_price, booking_status, package_id, package_price, tips_optional, created_at",
+      "id, full_name, email, phone, service, request_date, request_time, duration, location, notes, total_price, booking_status, package_id, package_price, tips_optional, payment_status, refunded, created_at",
     )
     .eq("tradesperson_id", authData.user.id)
     .order("request_date", { ascending: false });
@@ -198,6 +212,8 @@ export async function fetchProBookings(): Promise<ProBookingRecord[]> {
     totalPrice: Number(b.total_price ?? 0),
     tip: Number(b.tips_optional ?? 0),
     status: (b.booking_status as string) as ProBookingRecord["status"],
+    paymentStatus: (b.payment_status as "paid" | "unpaid" | null) ?? null,
+    refunded: (b.refunded as boolean) ?? false,
     createdAt: (b.created_at as string) ?? (b.request_date as string),
   }));
 }
@@ -206,10 +222,14 @@ export async function updateBookingStatus(
   bookingId: string,
   status: "confirmed" | "cancelled" | "completed",
 ): Promise<void> {
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData.user) throw new Error("Not authenticated");
+
   const { error } = await supabase
     .from("client_bookings")
     .update({ booking_status: status })
-    .eq("id", bookingId);
+    .eq("id", bookingId)
+    .eq("tradesperson_id", authData.user.id);
 
   if (error) throw error;
 }
@@ -220,19 +240,28 @@ export async function rescheduleBooking(
   time: string,
   location: string,
 ): Promise<void> {
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData.user) throw new Error("Not authenticated");
+
+  const uid = authData.user.id;
   const { error } = await supabase
     .from("client_bookings")
     .update({ request_date: date, request_time: time, location })
-    .eq("id", bookingId);
+    .eq("id", bookingId)
+    .or(`client_id.eq.${uid},tradesperson_id.eq.${uid}`);
 
   if (error) throw error;
 }
 
 export async function markBookingPaid(bookingId: string): Promise<void> {
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData.user) throw new Error("Not authenticated");
+
   const { error } = await supabase
     .from("client_bookings")
     .update({ payment_status: "paid" })
-    .eq("id", bookingId);
+    .eq("id", bookingId)
+    .eq("tradesperson_id", authData.user.id);
   if (error) throw error;
 }
 
@@ -243,7 +272,7 @@ export async function fetchBookingById(bookingId: string): Promise<BookingRecord
   const { data: b } = await supabase
     .from("client_bookings")
     .select(
-      "id, tradesperson_id, service, request_date, request_time, duration, location, notes, total_price, booking_status, package_id, package_price, tips_optional, created_at",
+      "id, tradesperson_id, service, request_date, request_time, duration, location, notes, total_price, booking_status, package_id, package_price, tips_optional, payment_status, created_at",
     )
     .eq("id", bookingId)
     .eq("client_id", authData.user.id)
@@ -304,9 +333,10 @@ export async function fetchBookingById(bookingId: string): Promise<BookingRecord
     tip: Number(b.tips_optional ?? 0),
     addons,
     status: status as BookingRecord["status"],
-    paymentStatus: null,
+    paymentStatus: (b.payment_status as "paid" | "unpaid" | null) ?? null,
     upcoming: requestDate >= today,
     createdAt: (b.created_at as string) ?? requestDate,
+    tradespersonId: traderId,
   };
 }
 
@@ -330,14 +360,18 @@ export async function fetchClientBookings(): Promise<BookingRecord[]> {
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) return [];
 
-  const { data: bookings } = await supabase
+  const { data: bookings, error: bookingsError } = await supabase
     .from("client_bookings")
     .select(
-      "id, tradesperson_id, service, request_date, request_time, duration, location, notes, total_price, booking_status, package_id, package_price, tips_optional, created_at",
+      "id, tradesperson_id, service, request_date, request_time, duration, location, notes, total_price, booking_status, package_id, package_price, tips_optional, payment_status, created_at",
     )
     .eq("client_id", authData.user.id)
     .order("request_date", { ascending: false });
 
+  if (bookingsError) {
+    console.error("fetchClientBookings:", bookingsError.message);
+    return [];
+  }
   if (!bookings || bookings.length === 0) return [];
 
   const traderIds = [...new Set(bookings.map((b) => b.tradesperson_id as string))];
@@ -449,12 +483,13 @@ export async function fetchClientBookings(): Promise<BookingRecord[]> {
       tip: Number(b.tips_optional ?? 0),
       addons: addonsByBooking[b.id as string] ?? [],
       status: status as BookingRecord["status"],
-      paymentStatus: null,
+      paymentStatus: (b.payment_status as "paid" | "unpaid" | null) ?? null,
       upcoming:
         requestDate >= today &&
         status !== "cancelled" &&
         status !== "completed",
       createdAt: (b.created_at as string) ?? requestDate,
+      tradespersonId: traderId,
     };
   });
 }

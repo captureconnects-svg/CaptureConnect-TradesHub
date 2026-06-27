@@ -10,7 +10,7 @@ import { requestPasswordReset } from "@/backend/auth-reset";
 export const Route = createFileRoute("/forgot-password")({
   head: () => ({
     meta: [
-      { title: "Forgot Password — TradeHub" },
+      { title: "Forgot Password — Capture Connect" },
       { name: "description", content: "Reset your TradeHub account password." },
     ],
   }),
@@ -71,7 +71,7 @@ function ForgotPasswordPage() {
 
           <div className="flex items-center gap-2 text-foreground/70 text-sm">
             <Hammer className="h-5 w-5 text-primary" />
-            TradeHub
+            Capture Connect
           </div>
         </div>
       </aside>

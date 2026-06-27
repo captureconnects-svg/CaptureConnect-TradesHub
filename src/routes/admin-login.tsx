@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { adminLogin, setAdminAuthenticated, setAdminEmail, recordAdminLogin } from "@/backend/admin";
+import { adminLogin, recordAdminLogin, getAdminName } from "@/backend/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin-login")({
   head: () => ({
-    meta: [{ title: "Admin Login — TradeHub" }],
+    meta: [{ title: "Admin Login — Capture Connect" }],
   }),
   component: AdminLoginPage,
 });
@@ -18,25 +18,20 @@ function AdminLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     const { ok, adminId } = await adminLogin(email, password);
     setLoading(false);
     if (ok) {
-      setAdminAuthenticated(true);
-      setAdminEmail(email);
-      let ip: string | null = null;
-      try {
-        const res = await fetch("https://api.ipify.org?format=json");
-        const data = await res.json();
-        ip = data.ip ?? null;
-      } catch {}
-      recordAdminLogin(email, adminId, ip);
+      await recordAdminLogin(email, adminId, null, getAdminName());
       navigate({ to: "/admin-dashboard" });
     } else {
+      setError("Invalid admin credentials.");
       toast.error("Invalid admin credentials.");
     }
   }
@@ -51,7 +46,7 @@ function AdminLoginPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Admin Portal</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Restricted access — TradeHub staff only
+              Restricted access — Capture Connect staff only
             </p>
           </div>
         </div>
@@ -86,18 +81,14 @@ function AdminLoginPage() {
               autoComplete="current-password"
             />
           </div>
+          {error && (
+            <p className="text-sm text-destructive text-center">{error}</p>
+          )}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in…" : "Sign In"}
           </Button>
         </form>
 
-        <div className="rounded-xl border border-dashed border-border bg-muted/40 p-4 text-center space-y-1">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Test Credentials
-          </p>
-          <p className="text-sm font-mono">admin@tradehub.com</p>
-          <p className="text-sm font-mono">Admin@123456</p>
-        </div>
       </div>
     </div>
   );

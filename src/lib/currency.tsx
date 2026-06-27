@@ -7,22 +7,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export type CurrencyCode = "USD" | "EUR" | "GBP" | "CAD" | "AUD" | "JPY" | "INR" | "NGN" | "ZAR" | "BRL";
+export type CurrencyCode = "USD" | "JMD";
 
 type Meta = { code: CurrencyCode; symbol: string; label: string; rate: number; locale: string };
 
-// Rates are vs USD (mock — for display only).
+// Rates are vs USD (mock fallback — live rates come from the exchange_rates table).
 export const CURRENCIES: Meta[] = [
-  { code: "USD", symbol: "$",  label: "US Dollar",        rate: 1,      locale: "en-US" },
-  { code: "EUR", symbol: "€",  label: "Euro",             rate: 0.92,   locale: "de-DE" },
-  { code: "GBP", symbol: "£",  label: "British Pound",    rate: 0.79,   locale: "en-GB" },
-  { code: "CAD", symbol: "C$", label: "Canadian Dollar",  rate: 1.36,   locale: "en-CA" },
-  { code: "AUD", symbol: "A$", label: "Australian Dollar",rate: 1.52,   locale: "en-AU" },
-  { code: "JPY", symbol: "¥",  label: "Japanese Yen",     rate: 150,    locale: "ja-JP" },
-  { code: "INR", symbol: "₹",  label: "Indian Rupee",     rate: 83,     locale: "en-IN" },
-  { code: "NGN", symbol: "₦",  label: "Nigerian Naira",   rate: 1550,   locale: "en-NG" },
-  { code: "ZAR", symbol: "R",  label: "South African Rand", rate: 18.5, locale: "en-ZA" },
-  { code: "BRL", symbol: "R$", label: "Brazilian Real",   rate: 5.05,   locale: "pt-BR" },
+  { code: "USD", symbol: "$",  label: "US Dollar",        rate: 1,    locale: "en-US" },
+  { code: "JMD", symbol: "J$", label: "Jamaican Dollar",  rate: 157,  locale: "en-JM" },
 ];
 
 type Ctx = {
@@ -52,7 +44,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
 
   const format: Ctx["format"] = (amountUSD, options = {}) => {
     const converted = amountUSD * currency.rate;
-    const decimals = options.decimals ?? (currency.code === "JPY" || currency.code === "NGN" ? 0 : 0);
+    const decimals = options.decimals ?? 2;
     try {
       return new Intl.NumberFormat(currency.locale, {
         style: "currency",

@@ -159,6 +159,17 @@ export async function deleteMerchandiseItem(id: number): Promise<void> {
 export async function addVariant(
   variant: Omit<MerchandiseVariant, "id">
 ): Promise<MerchandiseVariant> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not authenticated");
+
+  const { data: product } = await supabase
+    .from("tradesperson_SellersSpecialty")
+    .select("id")
+    .eq("id", variant.productId)
+    .eq("tradesperson_id", authData.user.id)
+    .maybeSingle();
+  if (!product) throw new Error("Product not found or access denied");
+
   const { data, error } = await supabase
     .from("tradesperson_Sell.Spe.variant")
     .insert({
@@ -185,6 +196,17 @@ export async function addVariant(
 }
 
 export async function updateVariant(variant: MerchandiseVariant): Promise<void> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not authenticated");
+
+  const { data: product } = await supabase
+    .from("tradesperson_SellersSpecialty")
+    .select("id")
+    .eq("id", variant.productId)
+    .eq("tradesperson_id", authData.user.id)
+    .maybeSingle();
+  if (!product) throw new Error("Product not found or access denied");
+
   const { error } = await supabase
     .from("tradesperson_Sell.Spe.variant")
     .update({
@@ -193,12 +215,31 @@ export async function updateVariant(variant: MerchandiseVariant): Promise<void> 
       product_price:    variant.productPrice,
       product_quantity: variant.productQuantity,
     })
-    .eq("id", variant.id);
+    .eq("id", variant.id)
+    .eq("product_id", variant.productId);
 
   if (error) throw new Error(error.message);
 }
 
 export async function deleteVariant(id: number): Promise<void> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not authenticated");
+
+  const { data: variant } = await supabase
+    .from("tradesperson_Sell.Spe.variant")
+    .select("product_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!variant) throw new Error("Variant not found");
+
+  const { data: product } = await supabase
+    .from("tradesperson_SellersSpecialty")
+    .select("id")
+    .eq("id", variant.product_id)
+    .eq("tradesperson_id", authData.user.id)
+    .maybeSingle();
+  if (!product) throw new Error("Access denied");
+
   const { error } = await supabase
     .from("tradesperson_Sell.Spe.variant")
     .delete()
@@ -218,7 +259,15 @@ export async function uploadMerchandiseImage(file: File, productId: number): Pro
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) throw new Error("Not authenticated");
 
-  const ext = file.name.split(".").pop() ?? "jpg";
+  const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+  };
+  const ext = ALLOWED_IMAGE_TYPES[file.type];
+  if (!ext) throw new Error("Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed.");
+
   const path = `${authData.user.id}/${productId}-${Date.now()}.${ext}`;
 
   const { error } = await supabase.storage
@@ -241,6 +290,14 @@ export async function saveMerchandiseImageUrl(
   const { data: authData, error: authError } = await supabase.auth.getUser();
   if (authError || !authData.user) throw new Error("Not authenticated");
 
+  const { data: product } = await supabase
+    .from("tradesperson_SellersSpecialty")
+    .select("id")
+    .eq("id", productId)
+    .eq("tradesperson_id", authData.user.id)
+    .maybeSingle();
+  if (!product) throw new Error("Product not found or access denied");
+
   const { data, error } = await supabase
     .from("tradesperson_Sell.Spe.images")
     .insert({
@@ -261,7 +318,24 @@ export async function saveMerchandiseImageUrl(
 }
 
 export async function deleteMerchandiseImageUrl(imageId: number, imageUrl: string): Promise<void> {
-  // Remove from storage first
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not authenticated");
+
+  const { data: image } = await supabase
+    .from("tradesperson_Sell.Spe.images")
+    .select("product_id")
+    .eq("id", imageId)
+    .maybeSingle();
+  if (!image) throw new Error("Image not found");
+
+  const { data: product } = await supabase
+    .from("tradesperson_SellersSpecialty")
+    .select("id")
+    .eq("id", image.product_id)
+    .eq("tradesperson_id", authData.user.id)
+    .maybeSingle();
+  if (!product) throw new Error("Access denied");
+
   const storagePath = extractStoragePath(imageUrl);
   if (storagePath) {
     await supabase.storage.from("pro_merchandise").remove([storagePath]);

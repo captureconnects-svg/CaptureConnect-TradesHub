@@ -102,7 +102,7 @@ export const Route = createFileRoute("/client-dashboard/book/$id")({
     return { pro, category, packages };
   },
   head: ({ loaderData }) => ({
-    meta: [{ title: `Book ${loaderData?.pro.name ?? "Trader"} — TradeHub` }],
+    meta: [{ title: `Book ${loaderData?.pro.name ?? "Trader"} — Capture Connect` }],
   }),
   notFoundComponent: () => (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4">

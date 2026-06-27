@@ -10,7 +10,7 @@ import { fetchApprovedTestimonials, type VideoTestimonialRecord } from "@/backen
 export const Route = createFileRoute("/reviews")({
   head: () => ({
     meta: [
-      { title: "Reviews — TradeHub" },
+      { title: "Reviews — Capture Connect" },
       {
         name: "description",
         content: "See what clients and tradespeople say about TradeHub.",
@@ -75,7 +75,7 @@ function ReviewsPage() {
             <span className="grid h-8 w-8 place-items-center rounded-md bg-amber-500 text-white">
               <Hammer className="h-4 w-4" />
             </span>
-            TradeHub
+            Capture Connect
           </Link>
           <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
@@ -227,7 +227,7 @@ function ReviewsPage() {
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <Button size="lg" className="bg-amber-500 hover:bg-amber-400 text-gray-900 font-semibold shadow-lg" asChild>
-              <Link to="/client-dashboard">Hire a Pro</Link>
+              <Link to="/client-login-signup">Hire a Pro</Link>
             </Button>
             <Button size="lg" className="border-2 border-foreground text-foreground bg-transparent hover:bg-foreground hover:text-background font-semibold transition-colors" asChild>
               <Link to="/pro-login-signup" search={{ mode: "signup" }}>Join as a Tradesperson</Link>

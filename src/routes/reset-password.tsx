@@ -11,7 +11,7 @@ import { updatePassword } from "@/backend/auth-reset";
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
-      { title: "Set New Password — TradeHub" },
+      { title: "Set New Password — Capture Connect" },
       { name: "description", content: "Set a new password for your TradeHub account." },
     ],
   }),
@@ -127,7 +127,7 @@ function ResetPasswordPage() {
 
           <div className="flex items-center gap-2 text-foreground/70 text-sm">
             <Hammer className="h-5 w-5 text-primary" />
-            TradeHub
+            Capture Connect
           </div>
         </div>
       </aside>

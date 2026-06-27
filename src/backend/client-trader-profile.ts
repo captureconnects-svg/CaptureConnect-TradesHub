@@ -157,6 +157,12 @@ export async function fetchTraderCardData(tradespersonId: string): Promise<Trade
 
     const p = profileRes.data as Record<string, unknown> | null;
 
+    // Return empty data for inactive, suspended, or deactivated profiles
+    const accountStatus = (p?.account_status as string | null)?.toLowerCase();
+    if (!p || p.active_role === false || accountStatus === "suspended" || accountStatus === "deactivated") {
+      return EMPTY;
+    }
+
     const dbWorkDays = ((workDaysRes.data ?? []) as Record<string, unknown>[]);
     const workDayMap = new Map(
       dbWorkDays.map((r) => [r.workday as string, { from: r.startTime as string, to: r.endTime as string }])

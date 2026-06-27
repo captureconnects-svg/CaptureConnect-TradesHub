@@ -1,101 +1,117 @@
 import { supabase } from "@/lib/supabase";
 
-export async function switchToClient(): Promise<void> {
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) throw new Error("Not authenticated");
+// ─── Switch: Pro → Client ────────────────────────────────────────────────────
+// The ONLY code path that creates a client_profiles record for a pro user.
+// Step 1: create / re-activate the client profile.
+// Step 2: deactivate the pro profile (after the client record is confirmed ready).
+// User is signed out and must re-login via the client login page.
+export async function switchToClientAccount(): Promise<void> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not authenticated");
 
   const userId = authData.user.id;
-  const meta = authData.user.user_metadata ?? {};
-  const fullName = (meta.full_name as string) ?? "";
-  const email = authData.user.email ?? "";
 
-  // Deactivate pro role
   const { data: proProfile } = await supabase
     .from("tradesperson_profiles")
-    .select("id")
+    .select("full_name, email, username, date_of_birth, gender, location")
     .eq("id", userId)
     .maybeSingle();
 
-  if (proProfile) {
-    const { error } = await supabase
-      .from("tradesperson_profiles")
-      .update({ active_role: false })
-      .eq("id", userId);
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await supabase
-      .from("tradesperson_profiles")
-      .insert({ id: userId, full_name: fullName, email, active_role: false });
-    if (error) throw new Error(error.message);
-  }
+  const p = proProfile as Record<string, unknown> | null;
 
-  // Activate client role — create record if none exists
-  const { data: clientProfile } = await supabase
+  // Step 1 — create or re-activate the client profile
+  const { data: existingClient } = await supabase
     .from("client_profiles")
     .select("id")
     .eq("id", userId)
     .maybeSingle();
 
-  if (clientProfile) {
+  if (existingClient) {
     const { error } = await supabase
       .from("client_profiles")
-      .update({ active_role: true })
+      .update({ active_role: true, account_status: "active" })
       .eq("id", userId);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase
-      .from("client_profiles")
-      .insert({ id: userId, full_name: fullName, email, active_role: true });
+    const { error } = await supabase.from("client_profiles").insert({
+      id: userId,
+      full_name: p?.full_name ?? authData.user.user_metadata?.full_name ?? "",
+      email: p?.email ?? authData.user.email ?? "",
+      username: p?.username ?? null,
+      date_of_birth: p?.date_of_birth ?? null,
+      gender: p?.gender ?? null,
+      location: p?.location ?? null,
+      role: "client",
+      account_status: "active",
+      active_role: true,
+    });
     if (error) throw new Error(error.message);
   }
+
+  // Step 2 — deactivate the pro profile now that client is confirmed ready
+  const { error: deactivateError } = await supabase
+    .from("tradesperson_profiles")
+    .update({ active_role: false, account_status: "deactivated" })
+    .eq("id", userId);
+  if (deactivateError) throw new Error(deactivateError.message);
+
+  await supabase.auth.signOut();
 }
 
-export async function switchToPro(): Promise<void> {
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData.user) throw new Error("Not authenticated");
+// ─── Switch: Client → Pro ────────────────────────────────────────────────────
+// The ONLY code path that creates a tradesperson_profiles record for a client user.
+// Step 1: create / re-activate the pro profile.
+// Step 2: deactivate the client profile (after the pro record is confirmed ready).
+// User is signed out and must re-login via the pro login page.
+export async function switchToProAccount(): Promise<void> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) throw new Error("Not authenticated");
 
   const userId = authData.user.id;
-  const meta = authData.user.user_metadata ?? {};
-  const fullName = (meta.full_name as string) ?? "";
-  const email = authData.user.email ?? "";
 
-  // Activate pro role — create record if none exists
-  const { data: proProfile } = await supabase
+  const { data: clientProfile } = await supabase
+    .from("client_profiles")
+    .select("full_name, email, username, date_of_birth, gender, location")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const p = clientProfile as Record<string, unknown> | null;
+
+  // Step 1 — create or re-activate the pro profile
+  const { data: existingPro } = await supabase
     .from("tradesperson_profiles")
     .select("id")
     .eq("id", userId)
     .maybeSingle();
 
-  if (proProfile) {
+  if (existingPro) {
     const { error } = await supabase
       .from("tradesperson_profiles")
-      .update({ active_role: true })
+      .update({ active_role: true, account_status: "active" })
       .eq("id", userId);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase
-      .from("tradesperson_profiles")
-      .insert({ id: userId, full_name: fullName, email, active_role: true });
+    const { error } = await supabase.from("tradesperson_profiles").insert({
+      id: userId,
+      full_name: p?.full_name ?? authData.user.user_metadata?.full_name ?? "",
+      email: p?.email ?? authData.user.email ?? "",
+      username: p?.username ?? null,
+      date_of_birth: p?.date_of_birth ?? null,
+      gender: p?.gender ?? null,
+      location: p?.location ?? null,
+      role: "tradesperson",
+      account_status: "active",
+      active_role: true,
+    });
     if (error) throw new Error(error.message);
   }
 
-  // Deactivate client role
-  const { data: clientProfile } = await supabase
+  // Step 2 — deactivate the client profile now that pro is confirmed ready
+  const { error: deactivateError } = await supabase
     .from("client_profiles")
-    .select("id")
-    .eq("id", userId)
-    .maybeSingle();
+    .update({ active_role: false, account_status: "deactivated" })
+    .eq("id", userId);
+  if (deactivateError) throw new Error(deactivateError.message);
 
-  if (clientProfile) {
-    const { error } = await supabase
-      .from("client_profiles")
-      .update({ active_role: false })
-      .eq("id", userId);
-    if (error) throw new Error(error.message);
-  } else {
-    const { error } = await supabase
-      .from("client_profiles")
-      .insert({ id: userId, full_name: fullName, email, active_role: false });
-    if (error) throw new Error(error.message);
-  }
+  await supabase.auth.signOut();
 }

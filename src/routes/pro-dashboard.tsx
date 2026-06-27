@@ -17,7 +17,7 @@ import { fetchProOrders, updateOrderFulfillment, type ProOrderRecord } from "@/b
 import { fetchMyReviews, type ClientReview } from "@/backend/client-reviews";
 import { fetchProStats, type ProStats } from "@/backend/pro-stats";
 import { fetchPortfolios, createPortfolio, updatePortfolio, uploadPortfolioMedia, savePortfolioMediaUrl, deletePortfolioMedia, deletePortfolio, MAX_MEDIA_PER_PORTFOLIO, type Portfolio, type PortfolioMedia } from "@/backend/pro-portfolio";
-import { fetchProBookings, updateBookingStatus, rescheduleBooking, type ProBookingRecord } from "@/backend/client-bookings";
+import { fetchProBookings, updateBookingStatus, rescheduleBooking, markBookingPaid, type ProBookingRecord } from "@/backend/client-bookings";
 import { fetchProActivity, fetchProActivityStats, type ActivityRecord } from "@/backend/pro-activity";
 import {
   fetchConversations,
@@ -30,9 +30,10 @@ import {
 import { toast } from "sonner";
 import { getVerificationStatus } from "@/backend/pro-verification";
 import { changePassword, deleteAccount } from "@/backend/account-settings";
-import { switchToClient } from "@/backend/switch-account";
+import { switchToClientAccount } from "@/backend/switch-account";
 import { fetchMyTestimonials, uploadTestimonialVideo, submitTestimonial, deleteTestimonial, type VideoTestimonialRecord } from "@/backend/testimonials";
-import { Hammer, LayoutDashboard, Upload, UserCog, MessageSquare, Settings, CalendarCheck, Calendar, Wallet, Activity, Eye, LogOut, Bell, Star, DollarSign, Briefcase, Heart, ImagePlus, Send, ArrowUpRight, ArrowDownRight, Info, X, RefreshCw, FileText, ArrowDownCircle, Search, Filter, Lock, Trash2, BarChart2, Users, ShoppingBag, Plus, Tag, Package, Film, FolderOpen, Pencil, Clock, MapPin, Phone, Mail, Check, Truck, ArrowLeft, ClipboardList, Paperclip, } from "lucide-react";
+import { Hammer, LayoutDashboard, Upload, UserCog, MessageSquare, Settings, CalendarCheck, Calendar, Wallet, Activity, Eye, LogOut, Bell, Star, DollarSign, Briefcase, Heart, ImagePlus, Send, ArrowUpRight, ArrowDownRight, Info, X, RefreshCw, FileText, ArrowDownCircle, Search, Filter, Lock, Trash2, BarChart2, Users, ShoppingBag, Plus, Tag, Package, Film, FolderOpen, Pencil, Clock, MapPin, Phone, Mail, Check, Truck, ArrowLeft, ClipboardList, Paperclip, AlertTriangle, CheckCircle2, } from "lucide-react";
+import { fetchProReturnRequests, approveReturnRequest, declineReturnRequest, fetchReturnEvidence, type ReturnRequest } from "@/backend/return-requests";
 import { CATEGORIES, slugifyName } from "@/lib/trades-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +51,7 @@ import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGrou
 export const Route = createFileRoute("/pro-dashboard")({
   head: () => ({
     meta: [
-      { title: "Pro Dashboard — TradeHub" },
+      { title: "Pro Dashboard — Capture Connect" },
       {
         name: "description",
         content:
@@ -167,7 +168,7 @@ function ProDashboardPage() {
                 <Hammer className="h-5 w-5 text-primary-foreground" />
               </div>
               <span className="font-bold text-lg group-data-[collapsible=icon]:hidden">
-                TradeHub Pro
+                Capture Connect Pro
               </span>
             </Link>
           </SidebarHeader>
@@ -267,7 +268,8 @@ const ACTIVITY_TYPE_CONFIG: Record<string, { icon: typeof Eye; label: string; ic
   message: { icon: MessageSquare, label: "Message",      iconColor: "text-blue-400",    iconBg: "bg-blue-400/10" },
   booking: { icon: CalendarCheck, label: "Booking",      iconColor: "text-emerald-500", iconBg: "bg-emerald-500/10" },
   payment: { icon: DollarSign,    label: "Payment",      iconColor: "text-primary",     iconBg: "bg-primary/10" },
-  order:   { icon: ShoppingBag,   label: "Shop Order",   iconColor: "text-violet-500",  iconBg: "bg-violet-500/10" },
+  order:          { icon: ShoppingBag,   label: "Shop Order",      iconColor: "text-violet-500",  iconBg: "bg-violet-500/10" },
+  refund_request: { icon: RefreshCw,     label: "Refund Request",  iconColor: "text-amber-500",   iconBg: "bg-amber-500/10" },
 };
 
 function activityDisplayType(activityType: string): string {
@@ -683,7 +685,7 @@ function Overview({
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 rounded-xl border border-border bg-card p-5">
+        <div className="lg:col-span-3 rounded-xl border border-border bg-card p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Recent Activity</h2>
             <button
@@ -721,27 +723,6 @@ function Overview({
           )}
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h2 className="font-semibold mb-4">Verification</h2>
-          <ul className="space-y-3 text-sm">
-            <li className="flex items-center justify-between">
-              <span>License verified</span>
-              <Badge className="bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/20">Verified</Badge>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Insurance on file</span>
-              <Badge className="bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/20">Verified</Badge>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>ID check</span>
-              <Badge variant="outline">Pending</Badge>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Background check</span>
-              <Badge className="bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/20">Passed</Badge>
-            </li>
-          </ul>
-        </div>
       </div>
     </div>
   );
@@ -1685,13 +1666,75 @@ function Bookings() {
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
   const [rescheduleForm, setRescheduleForm] = useState<RescheduleForm>({ date: "", time: "", location: "" });
   const [rescheduling, setRescheduling] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
+  const [bookingReturnRequests, setBookingReturnRequests] = useState<ReturnRequest[]>([]);
+  const [bookingApprovingRequest, setBookingApprovingRequest] = useState<ReturnRequest | null>(null);
+  const [bookingApprovalType, setBookingApprovalType] = useState<"full" | "partial">("full");
+  const [bookingPartialAmount, setBookingPartialAmount] = useState("");
+  const [bookingApproving, setBookingApproving] = useState(false);
+  const [bookingEvidenceUrls, setBookingEvidenceUrls] = useState<string[]>([]);
+  const [bookingEvidenceLoading, setBookingEvidenceLoading] = useState(false);
 
   useEffect(() => {
-    fetchProBookings()
-      .then(setBookings)
+    Promise.all([fetchProBookings(), fetchProReturnRequests()])
+      .then(([bks, rrs]) => {
+        setBookings(bks);
+        setBookingReturnRequests(rrs.filter((r) => r.bookingId !== null));
+      })
       .catch(() => toast.error("Failed to load bookings."))
       .finally(() => setLoading(false));
   }, []);
+
+  const rrByBooking: Record<string, ReturnRequest> = {};
+  for (const rr of bookingReturnRequests) {
+    if (rr.bookingId) rrByBooking[rr.bookingId] = rr;
+  }
+
+  async function handleBookingApprove() {
+    if (!bookingApprovingRequest) return;
+    if (bookingApprovalType === "partial" && !bookingPartialAmount) {
+      toast.error("Enter a partial refund amount.");
+      return;
+    }
+    setBookingApproving(true);
+    try {
+      await approveReturnRequest(bookingApprovingRequest.id, bookingApprovalType, bookingApprovalType === "partial" ? parseFloat(bookingPartialAmount) : undefined);
+      setBookingReturnRequests((prev) => prev.map((r) => r.id === bookingApprovingRequest.id ? { ...r, status: "pro_approved", refundType: bookingApprovalType, partialAmount: bookingApprovalType === "partial" ? parseFloat(bookingPartialAmount) : null } : r));
+      toast.success("Return request approved. Admin will process the refund.");
+      setBookingApprovingRequest(null);
+    } catch {
+      toast.error("Failed to approve request.");
+    } finally {
+      setBookingApproving(false);
+    }
+  }
+
+  async function handleBookingDecline(rr: ReturnRequest) {
+    try {
+      await declineReturnRequest(rr.id);
+      setBookingReturnRequests((prev) => prev.map((r) => r.id === rr.id ? { ...r, status: "pro_declined" } : r));
+      toast.success("Return request declined.");
+    } catch {
+      toast.error("Failed to decline request.");
+    }
+  }
+
+  async function handleMarkPaid(id: string) {
+    setUpdating((prev) => new Set(prev).add(id));
+    try {
+      await markBookingPaid(id);
+      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, paymentStatus: "paid" } : b)));
+      toast.success("Booking marked as paid.");
+    } catch {
+      toast.error("Failed to mark booking as paid.");
+    } finally {
+      setUpdating((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
 
   async function handleStatusChange(id: string, status: "confirmed" | "cancelled" | "completed") {
     setUpdating((prev) => new Set(prev).add(id));
@@ -1828,8 +1871,9 @@ function Bookings() {
             const initials = b.clientName.split(" ").filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
             const busy = updating.has(b.id);
 
+            const timeStr = b.time ? b.time.slice(0, 5) : "00:00";
             const bookingDateTime = b.date
-              ? new Date(`${b.date}T${b.time || "00:00"}:00`)
+              ? new Date(`${b.date}T${timeStr}:00`)
               : null;
             const bookingArrived = bookingDateTime ? bookingDateTime <= new Date() : false;
 
@@ -1873,9 +1917,20 @@ function Bookings() {
                       </div>
                     </div>
                   </div>
-                  <Badge className={`${statusTone[b.status] ?? ""} capitalize shrink-0 border font-medium`}>
-                    {b.status}
-                  </Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge className={`${statusTone[b.status] ?? ""} capitalize border font-medium`}>
+                      {b.status}
+                    </Badge>
+                    {b.paymentStatus === "paid" ? (
+                      <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 border font-medium gap-1">
+                        <Check className="h-3 w-3" /> Paid
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 border font-medium">
+                        Unpaid
+                      </Badge>
+                    )}
+                  </div>
                 </div>
 
                 {/* Card body — two-column layout */}
@@ -1975,28 +2030,149 @@ function Bookings() {
                   </div>
                 )}
 
-                {/* Card footer — actions for confirmed */}
-                {b.status === "confirmed" && (
+                {/* Card footer — mark paid for completed unpaid bookings */}
+                {b.status === "completed" && b.paymentStatus !== "paid" && !rrByBooking[b.id] && (
                   <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-border bg-muted/10">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5"
+                      className="gap-1.5 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-600"
                       disabled={busy}
-                      onClick={() => openReschedule(b)}
+                      onClick={() => handleMarkPaid(b.id)}
                     >
-                      <RefreshCw className="h-3.5 w-3.5" /> Reschedule
+                      <DollarSign className="h-3.5 w-3.5" /> Mark as Paid
                     </Button>
+                  </div>
+                )}
+
+                {/* Card footer — completed booking return request */}
+                {b.status === "completed" && rrByBooking[b.id] && (
+                  <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-border bg-muted/10 flex-wrap">
+                    {rrByBooking[b.id].status === "pending" && (
+                      <>
+                        <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5" /> Client submitted a refund request
+                        </p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-7 gap-1.5 border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+                          onClick={() => {
+                            const rr = rrByBooking[b.id];
+                            setBookingApprovingRequest(rr);
+                            setBookingApprovalType("full");
+                            setBookingPartialAmount("");
+                            setBookingEvidenceUrls([]);
+                            setBookingEvidenceLoading(true);
+                            fetchReturnEvidence(rr.id)
+                              .then(setBookingEvidenceUrls)
+                              .finally(() => setBookingEvidenceLoading(false));
+                          }}
+                        >
+                          <RefreshCw className="h-3 w-3" /> Review Request
+                        </Button>
+                      </>
+                    )}
+                    {rrByBooking[b.id].status === "pro_approved" && (
+                      <p className="text-xs text-blue-600 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Refund approved ({rrByBooking[b.id].refundType === "partial" ? `Partial $${rrByBooking[b.id].partialAmount?.toFixed(2)}` : "Full"}) — awaiting admin
+                      </p>
+                    )}
+                    {rrByBooking[b.id].status === "pro_declined" && (
+                      <p className="text-xs text-red-500 font-medium flex items-center gap-1.5">
+                        <X className="h-3.5 w-3.5" /> Refund request declined
+                      </p>
+                    )}
+                    {rrByBooking[b.id].status === "refunded" && (
+                      <p className="text-xs text-green-600 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Refunded
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Card footer — cancelled booking refund status */}
+                {b.status === "cancelled" && (b.paymentStatus === "paid" || b.refunded || rrByBooking[b.id]) && (
+                  <div className="flex items-center gap-3 px-5 py-4 border-t border-border bg-muted/10 flex-wrap">
+                    {b.refunded ? (
+                      <p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Refund issued
+                      </p>
+                    ) : rrByBooking[b.id] ? (
+                      <>
+                        {rrByBooking[b.id].status === "pending" && (
+                          <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5">
+                            <AlertTriangle className="h-3.5 w-3.5" /> Refund request pending review
+                          </p>
+                        )}
+                        {rrByBooking[b.id].status === "pro_approved" && (
+                          <p className="text-xs text-blue-600 font-medium flex items-center gap-1.5">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Refund approved ({rrByBooking[b.id].refundType === "partial" ? `Partial $${rrByBooking[b.id].partialAmount?.toFixed(2)}` : "Full"}) — awaiting admin
+                          </p>
+                        )}
+                        {rrByBooking[b.id].status === "pro_declined" && (
+                          <p className="text-xs text-red-500 font-medium flex items-center gap-1.5">
+                            <X className="h-3.5 w-3.5" /> Refund request declined
+                          </p>
+                        )}
+                        {rrByBooking[b.id].status === "refunded" && (
+                          <p className="text-xs text-emerald-600 font-medium flex items-center gap-1.5">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Refunded
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <DollarSign className="h-3.5 w-3.5" /> Payment collected — no refund requested
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Card footer — actions for confirmed */}
+                {b.status === "confirmed" && (
+                  <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-border bg-muted/10 flex-wrap">
                     <Button
+                      variant="outline"
                       size="sm"
-                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                      disabled={busy || !bookingArrived}
-                      title={!bookingArrived ? "Available once the booking date and time has passed" : undefined}
-                      onClick={() => handleStatusChange(b.id, "completed")}
+                      className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                      disabled={busy}
+                      onClick={() => setCancelTarget(b.id)}
                     >
-                      {!bookingArrived ? <Lock className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-                      Complete Booking
+                      <X className="h-3.5 w-3.5" /> Cancel Booking
                     </Button>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {b.paymentStatus !== "paid" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-600"
+                          disabled={busy}
+                          onClick={() => handleMarkPaid(b.id)}
+                        >
+                          <DollarSign className="h-3.5 w-3.5" /> Mark as Paid
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        disabled={busy}
+                        onClick={() => openReschedule(b)}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" /> Reschedule
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        disabled={busy || !bookingArrived}
+                        title={!bookingArrived ? "Available once the booking date and time has passed" : undefined}
+                        onClick={() => handleStatusChange(b.id, "completed")}
+                      >
+                        {!bookingArrived ? <Lock className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                        Complete Booking
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2062,6 +2238,125 @@ function Bookings() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel booking confirmation */}
+      <AlertDialog open={cancelTarget !== null} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this booking?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>Cancelling a confirmed booking will notify the client and flag the booking for a refund review by the TradeHub admin team.</p>
+                <p className="text-xs text-muted-foreground">
+                  Repeated cancellations may impact your seller rating. Only cancel if absolutely necessary.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCancelTarget(null)}>Keep Booking</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (cancelTarget) handleStatusChange(cancelTarget, "cancelled");
+                setCancelTarget(null);
+              }}
+            >
+              Yes, Cancel Booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Booking refund request review dialog */}
+      <Dialog open={bookingApprovingRequest !== null} onOpenChange={(open) => { if (!open) setBookingApprovingRequest(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Review Refund Request</DialogTitle>
+            <p className="text-sm text-muted-foreground">Booking #{bookingApprovingRequest?.bookingId?.slice(0, 8)}</p>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-muted/50 border border-border p-3">
+              <p className="text-xs font-medium text-foreground mb-1">Client's reason</p>
+              <p className="text-sm text-muted-foreground">{bookingApprovingRequest?.reason}</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">Proof submitted by client</p>
+              {bookingEvidenceLoading ? (
+                <p className="text-xs text-muted-foreground">Loading evidence…</p>
+              ) : bookingEvidenceUrls.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No images provided.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {bookingEvidenceUrls.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={url}
+                        alt={`Evidence ${i + 1}`}
+                        className="h-20 w-20 rounded-lg object-cover border border-border hover:opacity-80 transition-opacity"
+                      />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Refund type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["full", "partial"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setBookingApprovalType(t)}
+                    className={`rounded-lg border-2 p-3 text-sm font-medium transition-all ${
+                      bookingApprovalType === t
+                        ? "border-primary bg-primary/8 text-primary"
+                        : "border-border hover:border-primary/40"
+                    }`}
+                  >
+                    {t === "full" ? "Full Refund" : "Partial Refund"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {bookingApprovalType === "partial" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="bk-partial-amt">Partial refund amount ($)</Label>
+                <Input
+                  id="bk-partial-amt"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={bookingPartialAmount}
+                  onChange={(e) => setBookingPartialAmount(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="rounded-lg bg-blue-500/8 border border-blue-500/20 p-3 text-xs text-muted-foreground">
+              Approving passes this request to the TradeHub admin team to issue the refund. You cannot reverse this decision.
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive border-destructive/30 hover:bg-destructive/10"
+              disabled={bookingApproving}
+              onClick={() => { if (bookingApprovingRequest) handleBookingDecline(bookingApprovingRequest); setBookingApprovingRequest(null); }}
+            >
+              Decline Request
+            </Button>
+            <Button size="sm" disabled={bookingApproving} onClick={handleBookingApprove}>
+              {bookingApproving ? "Approving…" : "Approve Refund"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -2218,7 +2513,7 @@ function AllActivity() {
     { id: "view" as const,   label: "Profile Views",  count: activityStats.profileViews, numberColor: "text-blue-400" },
   ];
 
-  const types  = ["all", "view", "like", "review", "message", "booking", "payment", "order"];
+  const types  = ["all", "view", "like", "review", "message", "booking", "payment", "order", "refund_request"];
 
   const filtered = allItems.filter((item) => {
     if (activeFilter !== "all" && item.type !== activeFilter) return false;
@@ -2339,13 +2634,66 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
   const [orders, setOrders] = useState<ProOrderRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<number | null>(null);
+  const [returnRequests, setReturnRequests] = useState<ReturnRequest[]>([]);
+  const [approvingRequest, setApprovingRequest] = useState<ReturnRequest | null>(null);
+  const [approvalType, setApprovalType] = useState<"full" | "partial">("full");
+  const [partialAmount, setPartialAmount] = useState("");
+  const [approving, setApproving] = useState(false);
+  const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
 
   useEffect(() => {
-    fetchProOrders()
-      .then(setOrders)
+    Promise.all([fetchProOrders(), fetchProReturnRequests()])
+      .then(([o, rr]) => {
+        setOrders(o);
+        setReturnRequests(rr.filter((r) => r.orderId !== null));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const rrByOrder: Record<number, ReturnRequest> = {};
+  for (const rr of returnRequests) {
+    if (rr.orderId) rrByOrder[rr.orderId] = rr;
+  }
+
+  async function handleApprove() {
+    if (!approvingRequest) return;
+    const amount = approvalType === "partial" ? Number(partialAmount) : undefined;
+    if (approvalType === "partial" && (!partialAmount || isNaN(amount!))) {
+      toast.error("Enter a valid partial refund amount.");
+      return;
+    }
+    setApproving(true);
+    try {
+      await approveReturnRequest(approvingRequest.id, approvalType, amount);
+      setReturnRequests((prev) =>
+        prev.map((r) =>
+          r.id === approvingRequest.id
+            ? { ...r, status: "pro_approved", refundType: approvalType, partialAmount: amount ?? null }
+            : r
+        )
+      );
+      toast.success("Return request approved. The admin will issue the refund.");
+      setApprovingRequest(null);
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to approve request");
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  async function handleDecline(rr: ReturnRequest) {
+    try {
+      await declineReturnRequest(rr.id);
+      setReturnRequests((prev) =>
+        prev.map((r) => (r.id === rr.id ? { ...r, status: "pro_declined" } : r))
+      );
+      toast.success("Return request declined.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to decline request");
+    }
+  }
 
   async function markFulfilled(orderId: number, method: string) {
     setUpdating(orderId);
@@ -2375,6 +2723,20 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
             Orders placed by clients for your merchandise.
           </p>
         </div>
+      </div>
+
+      {/* Return obligation notice */}
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-500">
+          <RefreshCw className="h-4 w-4 shrink-0" />
+          Return & Refund Obligations
+        </div>
+        <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed">
+          <li>· You must honour return requests within <span className="font-medium text-foreground">14 days of delivery</span> for items that are unused, in original condition, and in original packaging.</li>
+          <li>· For faulty or misrepresented items, provide a full refund or replacement at no cost to the buyer — reports must be raised within 48 hrs of delivery.</li>
+          <li>· Failure to honour legitimate returns may result in TradeHub issuing a refund from your escrow balance.</li>
+          <li>· Custom-made and perishable items, or items you've explicitly marked non-returnable, are exempt.</li>
+        </ul>
       </div>
 
       {loading && (
@@ -2525,10 +2887,150 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
                   )}
                 </div>
               )}
+
+              {/* Return window + refund request status */}
+              {(() => {
+                const daysSince = Math.floor((Date.now() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+                const daysLeft = Math.max(0, 14 - daysSince);
+                const withinWindow = daysLeft > 0;
+                const rr = rrByOrder[order.id] ?? null;
+                return (
+                  <div className="flex items-center justify-between pt-3 border-t border-border gap-3 flex-wrap">
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+                        {withinWindow
+                          ? <span>Return window: <span className="font-medium text-foreground">{daysLeft} day{daysLeft !== 1 ? "s" : ""} remaining</span></span>
+                          : <span className="text-muted-foreground/60">Return window closed</span>
+                        }
+                      </p>
+                      {rr && (
+                        <p className="text-xs flex items-center gap-1.5">
+                          {rr.status === "pending" && <span className="text-amber-600 font-medium flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Return request pending your review</span>}
+                          {rr.status === "pro_approved" && <span className="text-blue-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> You approved — awaiting admin refund ({rr.refundType === "partial" ? `Partial $${rr.partialAmount?.toFixed(2)}` : "Full"})</span>}
+                          {rr.status === "pro_declined" && <span className="text-red-500 font-medium flex items-center gap-1"><X className="h-3 w-3" /> Return declined</span>}
+                          {rr.status === "refunded" && <span className="text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Refunded</span>}
+                        </p>
+                      )}
+                    </div>
+                    {rr?.status === "pending" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs h-7 gap-1.5 border-amber-500/40 text-amber-600 hover:bg-amber-500/10"
+                        onClick={() => {
+                          setApprovingRequest(rr);
+                          setApprovalType("full");
+                          setPartialAmount("");
+                          setEvidenceUrls([]);
+                          setEvidenceLoading(true);
+                          fetchReturnEvidence(rr.id)
+                            .then(setEvidenceUrls)
+                            .finally(() => setEvidenceLoading(false));
+                        }}
+                      >
+                        <RefreshCw className="h-3 w-3" /> Review Request
+                      </Button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>
       )}
+
+      {/* Approve Return dialog */}
+      <Dialog open={approvingRequest !== null} onOpenChange={(open) => { if (!open) setApprovingRequest(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Review Return Request</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Order #{approvingRequest ? String(approvingRequest.orderId).padStart(6, "0") : ""}
+            </p>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-muted/50 border border-border p-3">
+              <p className="text-xs font-medium text-foreground mb-1">Client's reason</p>
+              <p className="text-sm text-muted-foreground">{approvingRequest?.reason}</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">Proof submitted by client</p>
+              {evidenceLoading ? (
+                <p className="text-xs text-muted-foreground">Loading evidence…</p>
+              ) : evidenceUrls.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No images provided.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {evidenceUrls.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={url}
+                        alt={`Evidence ${i + 1}`}
+                        className="h-20 w-20 rounded-lg object-cover border border-border hover:opacity-80 transition-opacity"
+                      />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Refund type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["full", "partial"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setApprovalType(t)}
+                    className={`rounded-lg border-2 p-3 text-sm font-medium transition-all ${
+                      approvalType === t
+                        ? "border-primary bg-primary/8 text-primary"
+                        : "border-border hover:border-primary/40"
+                    }`}
+                  >
+                    {t === "full" ? "Full Refund" : "Partial Refund"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {approvalType === "partial" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="partial-amt">Partial refund amount ($)</Label>
+                <Input
+                  id="partial-amt"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={partialAmount}
+                  onChange={(e) => setPartialAmount(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="rounded-lg bg-blue-500/8 border border-blue-500/20 p-3 text-xs text-muted-foreground">
+              Approving this request passes it to the TradeHub admin team to issue the refund. You cannot reverse this decision.
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive border-destructive/30 hover:bg-destructive/10"
+              disabled={approving}
+              onClick={() => { if (approvingRequest) handleDecline(approvingRequest); setApprovingRequest(null); }}
+            >
+              Decline Request
+            </Button>
+            <Button size="sm" disabled={approving} onClick={handleApprove}>
+              {approving ? "Approving…" : "Approve Refund"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3127,8 +3629,7 @@ function SettingsView() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [switchingToClient, setSwitchingToClient] = useState(false);
-  const [showSwitchConfirm, setShowSwitchConfirm] = useState(false);
-
+  const [confirmSwitchToClient, setConfirmSwitchToClient] = useState(false);
   useEffect(() => {
     fetchProProfileData().then((data) => {
       if (data) setProfileData(data);
@@ -3175,20 +3676,6 @@ function SettingsView() {
     }
   }
 
-  async function handleSwitchToClient() {
-    setSwitchingToClient(true);
-    setShowSwitchConfirm(false);
-    try {
-      await switchToClient();
-      toast.success("Switched to client account");
-      navigate({ to: "/client-dashboard" });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to switch account");
-    } finally {
-      setSwitchingToClient(false);
-    }
-  }
-
   async function handleDeleteAccount() {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
@@ -3207,8 +3694,26 @@ function SettingsView() {
     }
   }
 
+  async function handleSwitchToClient() {
+    if (!confirmSwitchToClient) {
+      setConfirmSwitchToClient(true);
+      return;
+    }
+    setSwitchingToClient(true);
+    try {
+      await switchToClientAccount();
+      toast.success("Switched to client account. Please sign in as a client.");
+      navigate({ to: "/client-login-signup" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to switch account");
+      setConfirmSwitchToClient(false);
+    } finally {
+      setSwitchingToClient(false);
+    }
+  }
+
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Manage your account preferences and settings</p>
@@ -3292,49 +3797,32 @@ function SettingsView() {
           </div>
         </div>
 
-        {/* Switch Account Type */}
+        {/* Switch Account */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-2 mb-5">
             <Users className="h-4 w-4" />
-            <h3 className="font-semibold">Switch Account Type</h3>
+            <h3 className="font-semibold">Switch Account</h3>
           </div>
           <div className="space-y-4">
             <div>
-              <p className="font-semibold text-sm">Account Switching</p>
-              <p className="text-sm text-muted-foreground mt-1">Switch between your client and pro accounts</p>
+              <p className="font-semibold text-sm">Switch to Client Account</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your pro profile will be deactivated and hidden from listings. You'll be signed out and must sign in again as a client.
+              </p>
             </div>
+            {confirmSwitchToClient && (
+              <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">Are you sure? Click again to switch accounts.</p>
+            )}
             <Button
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white border-0"
-              onClick={() => setShowSwitchConfirm(true)}
+              variant="outline"
+              className="w-full"
+              onClick={handleSwitchToClient}
               disabled={switchingToClient}
             >
-              {switchingToClient ? "Switching..." : "Switch to Client"}
+              {switchingToClient ? "Switching..." : confirmSwitchToClient ? "Yes, Switch to Client" : "Switch to Client Account"}
             </Button>
           </div>
         </div>
-
-        <Dialog open={showSwitchConfirm} onOpenChange={setShowSwitchConfirm}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Switch to Client Account?</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">
-              This will create a client profile for your account and redirect you to the client dashboard. Your pro profile will remain saved.
-            </p>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowSwitchConfirm(false)}>
-                Cancel
-              </Button>
-              <Button
-                className="bg-blue-500 hover:bg-blue-600 text-white border-0"
-                onClick={handleSwitchToClient}
-                disabled={switchingToClient}
-              >
-                {switchingToClient ? "Switching..." : "Yes, Switch to Client"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* Delete Account */}
         <div className="rounded-xl border border-border bg-card p-5">
@@ -3361,8 +3849,22 @@ function SettingsView() {
         </div>
       </div>
 
-      {/* Account Security — half-width row */}
+      {/* Account Security + Verification — half-width row */}
       <div className="grid lg:grid-cols-2 gap-6">
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5 flex flex-col items-center justify-center text-center gap-3">
+          <div className="h-12 w-12 rounded-full bg-emerald-500/15 flex items-center justify-center">
+            <Check className="h-6 w-6 text-emerald-500" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-emerald-600 dark:text-emerald-400">Account Verified</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Your identity has been approved. Clients can book you with confidence.
+            </p>
+          </div>
+          <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20">
+            Approved
+          </Badge>
+        </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-2 mb-5">
             <Lock className="h-4 w-4" />

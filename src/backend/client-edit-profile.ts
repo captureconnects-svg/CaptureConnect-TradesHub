@@ -112,8 +112,16 @@ export async function uploadClientProfileImage(
     }
   }
 
+  const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+  };
+  const ext = ALLOWED_IMAGE_TYPES[file.type];
+  if (!ext) throw new Error("Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed.");
+
   const folder = userId;
-  const ext = file.name.split(".").pop() ?? "jpg";
   const path = `${folder}/${Date.now()}.${ext}`;
 
   const { error: uploadError } = await supabase.storage

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -27,7 +28,7 @@ export const Route = createFileRoute("/client-dashboard/booking-checkout/$id")({
     const booking = await fetchBookingById(params.id);
     return { booking };
   },
-  head: () => ({ meta: [{ title: "Pay for Booking — TradeHub" }] }),
+  head: () => ({ meta: [{ title: "Pay for Booking — Capture Connect" }] }),
   component: BookingCheckoutPage,
 });
 
@@ -139,7 +140,7 @@ function CheckoutForm({ booking }: { booking: BookingRecord }) {
       await markBookingPaid(booking.id);
       setStep("success");
     } catch {
-      // keep form open on failure
+      toast.error("Payment failed. Please try again.");
     } finally {
       setLoading(false);
     }
