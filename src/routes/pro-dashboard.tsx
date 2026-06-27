@@ -226,7 +226,7 @@ function ProDashboardPage() {
                 size="sm"
                 className="gap-2"
                 disabled={!proId}
-                onClick={() => proId && window.open(`/client-dashboard/trader/${proSlug || proId}`, "_blank")}
+                onClick={() => proId && window.open(`/client-dashboard/trader/${proSlug || proId}?preview=true`, "_blank")}
               >
                 <Eye className="h-4 w-4" /> <span className="hidden sm:inline">View Public Profile</span>
               </Button>

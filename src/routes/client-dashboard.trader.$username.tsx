@@ -18,7 +18,7 @@ import { SavedSheet } from "@/components/trade/SavedSheet";
 import { TRADESPEOPLE, CATEGORIES, type Tradesperson } from "@/lib/trades-data";
 import { useCurrency } from "@/lib/currency";
 import { useCart } from "@/lib/cart-context";
-import { fetchTraderCardData, type TraderProduct } from "@/backend/client-trader-profile";
+import { fetchTraderCardData, type TraderCardData, type TraderProduct } from "@/backend/client-trader-profile";
 import { fetchClientLikes, toggleClientLike } from "@/backend/client-likes";
 import { logActivity } from "@/backend/pro-activity";
 import {
@@ -790,17 +790,26 @@ function SendMessageDialog({
 
 // ─── Share Profile Dialog ─────────────────────────────────────────────────────
 function ShareProfileDialog({ name }: { name: string }) {
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const shareUrl = typeof window !== "undefined" ? window.location.href : "";
+  const [shareUrl, setShareUrl] = useState("");
 
-  const copy = () => {
-    navigator.clipboard.writeText(shareUrl);
+  useEffect(() => {
+    if (open) setShareUrl(window.location.href);
+  }, [open]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch {
+      // fallback: let the user manually copy from the input
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" className="gap-2 w-full">
           <Share2 className="h-4 w-4" />
@@ -812,12 +821,23 @@ function ShareProfileDialog({ name }: { name: string }) {
           <DialogTitle>Share {name}'s Profile</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-1">
-          <p className="text-sm text-muted-foreground">Copy the link below to share this profile with others.</p>
-          <div className="flex gap-2 items-center p-3 rounded-xl bg-muted/30 border border-border">
-            <LinkIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-xs text-muted-foreground flex-1 truncate">{shareUrl}</span>
+          <p className="text-sm text-muted-foreground">
+            Copy the link below to share this profile with others.
+          </p>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 p-3">
+            <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <input
+              readOnly
+              value={shareUrl}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className="min-w-0 flex-1 bg-transparent text-xs text-muted-foreground outline-none cursor-text"
+            />
           </div>
-          <Button onClick={copy} className="w-full gap-2" variant={copied ? "secondary" : "default"}>
+          <Button
+            onClick={copy}
+            className="w-full gap-2"
+            variant={copied ? "secondary" : "default"}
+          >
             {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {copied ? "Link copied!" : "Copy link"}
           </Button>
@@ -1213,7 +1233,7 @@ function DeleteReviewDialog({ reviewId, onDeleted }: { reviewId: number; onDelet
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 function TraderProfilePage() {
-  const { pro, cardData } = Route.useLoaderData();
+  const { pro, cardData } = Route.useLoaderData() as { pro: Tradesperson; cardData: TraderCardData };
   const { preview: isPreview, from: fromSlug } = Route.useSearch();
   const category = CATEGORIES.find((c) => c.slug === pro.categorySlug);
   const displayCategory = (fromSlug ? CATEGORIES.find((c) => c.slug === fromSlug) : undefined) ?? category;
@@ -1324,16 +1344,32 @@ function TraderProfilePage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {isPreview && (
-        <div className="sticky top-0 z-40 flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 text-sm font-medium text-amber-600 dark:text-amber-400">
-          <Eye className="h-4 w-4 shrink-0" />
-          Preview mode — this is how clients see your profile. Interactive buttons are disabled.
+        <div className="sticky top-0 z-40 flex items-center justify-between gap-2 bg-amber-500/10 border-b border-amber-500/30 px-4 py-2.5 text-sm font-medium text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4 shrink-0" />
+            <span>Preview mode — this is how clients see your profile.</span>
+          </div>
+          <Link
+            to="/pro-dashboard"
+            className="flex items-center gap-1 shrink-0 underline underline-offset-2 hover:opacity-70 transition-opacity"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Dashboard
+          </Link>
         </div>
       )}
       <DashboardHeader likedCount={likedCount} onOpenLikes={() => setShowLikes(true)} />
 
       <main className="container mx-auto px-4 py-6 max-w-7xl">
-        {/* Back link — hidden when a pro trader is viewing */}
-        {!viewerIsPro && (
+        {/* Back link */}
+        {viewerIsPro ? (
+          <Link
+            to="/pro-dashboard"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+          </Link>
+        ) : (
           <Link
             to="/client-dashboard/category/$slug"
             params={{ slug: displayCategory?.slug ?? pro.categorySlug }}
