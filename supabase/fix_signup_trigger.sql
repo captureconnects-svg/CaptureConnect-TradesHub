@@ -14,7 +14,7 @@ DROP FUNCTION IF EXISTS public.handle_new_user();
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER
-LANGUAGE plpgsql
+LANGUAGE plpgsql 
 SECURITY DEFINER
 SET search_path = public
 AS $$

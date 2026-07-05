@@ -1358,7 +1358,7 @@ function TraderProfilePage() {
           </Link>
         </div>
       )}
-      <DashboardHeader likedCount={likedCount} onOpenLikes={() => setShowLikes(true)} />
+      {!isPreview && <DashboardHeader likedCount={likedCount} onOpenLikes={() => setShowLikes(true)} />}
 
       <main className="container mx-auto px-4 py-6 max-w-7xl">
         {/* Back link */}
@@ -1745,7 +1745,6 @@ function TraderProfilePage() {
                   reviewCount={reviewCount}
                   ratingBreakdown={ratingBreakdown}
                   proName={cardData.username || cardData.fullName || pro.name}
-                  disabled={isPreview}
                   dbReviews={dbReviews}
                   currentClientId={clientId}
                   onDeleteReview={() => setReviewKey((k) => k + 1)}

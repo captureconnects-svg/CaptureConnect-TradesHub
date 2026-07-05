@@ -1,5 +1,5 @@
-import { Hammer } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import logoImg from "@/assets/logo-withoutBranding.png";
 
 type FooterLink = { label: string; to: string; hash?: string };
 
@@ -21,11 +21,16 @@ export function FooterSection() {
         <div className="grid gap-12 md:grid-cols-4">
           {/* Brand */}
           <div className="flex flex-col gap-4">
-            <Link to="/" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-              <span className="grid h-8 w-8 place-items-center rounded-md bg-[var(--gradient-amber)] text-primary-foreground">
-                <Hammer className="h-4 w-4" />
+            <Link to="/" className="flex items-center gap-1">
+              <img
+                src={logoImg}
+                alt="Capture Connect – TradeHub Marketplace"
+                className="h-24 w-auto object-contain"
+              />
+              <span className="flex flex-col leading-tight whitespace-nowrap">
+                <span className="text-base font-bold tracking-tight text-foreground">Capture Connect</span>
+                <span className="text-xs font-medium text-amber-500 tracking-wide">TradeHub Marketplace</span>
               </span>
-              Capture Connect
             </Link>
           </div>
 

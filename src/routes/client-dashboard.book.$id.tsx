@@ -26,6 +26,15 @@ import { supabase } from "@/lib/supabase";
 import { fetchTraderCardData } from "@/backend/client-trader-profile";
 import { submitBooking, submitBookingAddons, fetchTraderConfirmedBookingDates } from "@/backend/client-bookings";
 
+type BookingPackage = {
+  name: string;
+  price: number;
+  description: string;
+  hours: number;
+  features: string[];
+  addons: { name: string; price: number }[];
+};
+
 export const Route = createFileRoute("/client-dashboard/book/$id")({
   loader: async ({ params }) => {
     // Try static list first
@@ -33,7 +42,7 @@ export const Route = createFileRoute("/client-dashboard/book/$id")({
 
     if (pro) {
       const category = CATEGORIES.find((c) => c.slug === pro!.categorySlug);
-      const packages = TRADE_PACKAGES[pro!.categorySlug] ?? TRADE_PACKAGES["construction"];
+      const packages: BookingPackage[] = TRADE_PACKAGES[pro!.categorySlug] ?? TRADE_PACKAGES["construction"];
       return { pro, category, packages };
     }
 
@@ -86,7 +95,7 @@ export const Route = createFileRoute("/client-dashboard/book/$id")({
 
     // Use trader's own packages if configured, otherwise fall back to static packages
     const cardData = await fetchTraderCardData(params.id);
-    const packages =
+    const packages: BookingPackage[] =
       cardData.packages.length > 0
         ? cardData.packages.map((pkg) => ({
             id: pkg.id,
@@ -125,7 +134,7 @@ function addHoursToTime(time: string, hours: number): string {
 }
 
 function BookingPage() {
-  const { pro, packages } = Route.useLoaderData();
+  const { pro, packages } = Route.useLoaderData() as { pro: Tradesperson; category: unknown; packages: BookingPackage[] };
   const { format } = useCurrency();
 
   const [confirmed, setConfirmed] = useState(false);

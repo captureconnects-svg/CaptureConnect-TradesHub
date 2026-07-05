@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { sendNotificationEmail, buildSwitchedToClientEmail, buildSwitchedToProEmail } from "@/backend/notification-emails";
 
 // ─── Switch: Pro → Client ────────────────────────────────────────────────────
 // The ONLY code path that creates a client_profiles record for a pro user.
@@ -54,6 +55,17 @@ export async function switchToClientAccount(): Promise<void> {
     .update({ active_role: false, account_status: "deactivated" })
     .eq("id", userId);
   if (deactivateError) throw new Error(deactivateError.message);
+
+  // Send confirmation email before signing out (fire-and-forget)
+  const displayName = String(p?.full_name ?? authData.user.user_metadata?.full_name ?? "there");
+  const userEmail = String(p?.email ?? authData.user.email ?? "");
+  if (userEmail) {
+    sendNotificationEmail({
+      to: userEmail,
+      subject: "You've switched to your Client account — Capture Connect",
+      html: buildSwitchedToClientEmail(displayName),
+    }).catch(() => {});
+  }
 
   await supabase.auth.signOut();
 }
@@ -112,6 +124,17 @@ export async function switchToProAccount(): Promise<void> {
     .update({ active_role: false, account_status: "deactivated" })
     .eq("id", userId);
   if (deactivateError) throw new Error(deactivateError.message);
+
+  // Send confirmation email before signing out (fire-and-forget)
+  const displayName = String(p?.full_name ?? authData.user.user_metadata?.full_name ?? "there");
+  const userEmail = String(p?.email ?? authData.user.email ?? "");
+  if (userEmail) {
+    sendNotificationEmail({
+      to: userEmail,
+      subject: "You've switched to your Pro account — Capture Connect",
+      html: buildSwitchedToProEmail(displayName),
+    }).catch(() => {});
+  }
 
   await supabase.auth.signOut();
 }

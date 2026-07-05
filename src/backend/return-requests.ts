@@ -1,6 +1,14 @@
 import { supabase } from "@/lib/supabase";
 import { logActivity } from "@/backend/pro-activity";
 import { requireAdminRole } from "@/backend/admin";
+import {
+  sendAdminAlertEmail,
+  buildAdminRefundRequestAlertEmail,
+  buildRefundInitiatedEmail,
+  buildRefundDeniedEmail,
+  buildRefundCompletedEmail,
+} from "@/backend/notification-emails";
+import { notify } from "@/backend/notify";
 
 export type ReturnRequestStatus = "pending" | "pro_approved" | "pro_declined" | "refunded";
 
@@ -74,6 +82,32 @@ export async function submitReturnRequest(params: {
       description: `${clientName} submitted a refund request for a ${context}`,
       clientId: authData.user!.id,
     });
+
+    // Notify admin
+    let service = context === "booking" ? "a booking" : "an order";
+    let amount = "";
+    if (params.bookingId) {
+      const { data: booking } = await supabase
+        .from("client_bookings")
+        .select("service, total_price")
+        .eq("id", params.bookingId)
+        .maybeSingle();
+      if (booking) {
+        service = (booking.service as string) || service;
+        amount = `$${Number(booking.total_price).toFixed(2)}`;
+      }
+    } else if (params.orderId) {
+      const { data: order } = await supabase
+        .from("client_shopping")
+        .select("total_price")
+        .eq("id", params.orderId)
+        .maybeSingle();
+      if (order) amount = `$${Number(order.total_price).toFixed(2)}`;
+    }
+    await sendAdminAlertEmail(
+      "New refund request — Capture Connect",
+      buildAdminRefundRequestAlertEmail(clientName, authData.user!.email ?? "", amount, service),
+    );
   })().catch(() => {});
 
   return requestId;
@@ -162,6 +196,40 @@ export async function approveReturnRequest(
     .eq("tradesperson_id", authData.user.id);
 
   if (error) throw new Error(error.message);
+
+  // Notify client that their refund request has been approved (fire-and-forget)
+  ;(async () => {
+    const { data: req } = await supabase
+      .from("return_request")
+      .select("client_id, booking_id, order_id, partial_amount, refund_type")
+      .eq("id", id)
+      .maybeSingle();
+    if (!req?.client_id) return;
+
+    const { data: cp } = await supabase
+      .from("client_profiles")
+      .select("full_name, username, email")
+      .eq("id", req.client_id as string)
+      .maybeSingle();
+    if (!(cp as any)?.email) return;
+
+    const clientName = String((cp as any).username ?? (cp as any).full_name ?? "there");
+    const isPartial = req.refund_type === "partial";
+    const amount = isPartial && req.partial_amount
+      ? `$${Number(req.partial_amount).toFixed(2)} (partial)`
+      : "your payment";
+    const context = req.booking_id ? "booking" : "order";
+
+    await notify({
+      userId: req.client_id as string,
+      userEmail: (cp as any).email as string,
+      title: "Refund initiated",
+      message: `Your refund request for your ${context} has been approved.`,
+      type: "payment",
+      emailHtml: buildRefundInitiatedEmail(clientName, amount, context),
+      emailSubject: "Refund initiated — Capture Connect",
+    });
+  })().catch(() => {});
 }
 
 export async function declineReturnRequest(id: number): Promise<void> {
@@ -175,6 +243,36 @@ export async function declineReturnRequest(id: number): Promise<void> {
     .eq("tradesperson_id", authData.user.id);
 
   if (error) throw new Error(error.message);
+
+  // Notify client that their refund was denied (fire-and-forget)
+  ;(async () => {
+    const { data: req } = await supabase
+      .from("return_request")
+      .select("client_id, booking_id, reason")
+      .eq("id", id)
+      .maybeSingle();
+    if (!req?.client_id) return;
+
+    const { data: cp } = await supabase
+      .from("client_profiles")
+      .select("full_name, username, email")
+      .eq("id", req.client_id as string)
+      .maybeSingle();
+    if (!(cp as any)?.email) return;
+
+    const clientName = String((cp as any).username ?? (cp as any).full_name ?? "there");
+    const context = req.booking_id ? "booking" : "order";
+
+    await notify({
+      userId: req.client_id as string,
+      userEmail: (cp as any).email as string,
+      title: "Refund request declined",
+      message: `Your refund request for your ${context} was declined.`,
+      type: "payment",
+      emailHtml: buildRefundDeniedEmail(clientName, context, "The service provider reviewed and declined your request."),
+      emailSubject: "Refund request declined — Capture Connect",
+    });
+  })().catch(() => {});
 }
 
 export async function fetchReturnEvidence(requestId: number): Promise<string[]> {
@@ -229,6 +327,38 @@ export async function markReturnRefunded(id: number): Promise<void> {
     .update({ status: "refunded" })
     .eq("id", id);
   if (error) throw new Error(error.message);
+
+  // Notify client that their refund is complete (fire-and-forget)
+  ;(async () => {
+    const { data: req } = await supabase
+      .from("return_request")
+      .select("client_id, partial_amount, refund_type")
+      .eq("id", id)
+      .maybeSingle();
+    if (!req?.client_id) return;
+
+    const { data: cp } = await supabase
+      .from("client_profiles")
+      .select("full_name, username, email")
+      .eq("id", req.client_id as string)
+      .maybeSingle();
+    if (!(cp as any)?.email) return;
+
+    const clientName = String((cp as any).username ?? (cp as any).full_name ?? "there");
+    const amount = req.refund_type === "partial" && req.partial_amount
+      ? `$${Number(req.partial_amount).toFixed(2)}`
+      : "your payment";
+
+    await notify({
+      userId: req.client_id as string,
+      userEmail: (cp as any).email as string,
+      title: "Refund completed",
+      message: `Your refund of ${amount} has been processed.`,
+      type: "payment",
+      emailHtml: buildRefundCompletedEmail(clientName, amount),
+      emailSubject: "Refund completed — Capture Connect",
+    });
+  })().catch(() => {});
 }
 
 export type AdminReturnRequest = ReturnRequest & {

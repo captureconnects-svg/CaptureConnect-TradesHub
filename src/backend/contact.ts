@@ -1,5 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/backend/admin";
+import {
+  sendAdminAlertEmail,
+  buildAdminContactRequestAlertEmail,
+} from "@/backend/notification-emails";
 
 export interface ContactRequestData {
   fullname: string;
@@ -29,6 +33,17 @@ export async function submitContactRequest(data: ContactRequestData): Promise<vo
   });
 
   if (error) throw new Error(error.message);
+
+  // Notify admin (fire-and-forget)
+  const excerpt = data.message.length > 150
+    ? data.message.slice(0, 150) + "…"
+    : data.message;
+  ;(async () => {
+    await sendAdminAlertEmail(
+      `New contact request: ${data.subject} — Capture Connect`,
+      buildAdminContactRequestAlertEmail(data.fullname, data.email, data.subject, excerpt),
+    );
+  })().catch(() => {});
 }
 
 export async function fetchContactRequests(): Promise<ContactRequest[]> {

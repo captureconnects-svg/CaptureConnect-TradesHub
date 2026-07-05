@@ -1,4 +1,16 @@
 import { supabase } from "@/lib/supabase";
+import { notify } from "@/backend/notify";
+import {
+  buildVerificationApprovedEmail,
+  buildVerificationRejectedEmail,
+  buildTestimonialApprovedEmail,
+  buildTestimonialRejectedEmail,
+  buildSuspensionEmail,
+  buildReinstatementEmail,
+  buildAccountDeletedEmail,
+  buildRefundInitiatedEmail,
+  sendNotificationEmail,
+} from "@/backend/notification-emails";
 
 const ALLOWED_ROLES = ["admin", "super_admin"] as const;
 type AdminRole = (typeof ALLOWED_ROLES)[number];
@@ -369,6 +381,27 @@ export async function issueBookingRefund(id: string): Promise<void> {
     .eq("booking_id", id)
     .eq("status", "pro_approved");
   await logAdminAction("issue_booking_refund", "booking", { bookingId: id });
+
+  // Notify client (fire-and-forget)
+  ;(async () => {
+    const { data: booking } = await supabase
+      .from("client_bookings")
+      .select("client_id, email, full_name, service, total_price")
+      .eq("id", id)
+      .maybeSingle();
+    if (!booking?.email || !booking?.client_id) return;
+    const clientName = String(booking.full_name ?? "there");
+    const amount = `$${Number(booking.total_price).toFixed(2)}`;
+    await notify({
+      userId: booking.client_id as string,
+      userEmail: booking.email as string,
+      title: "Refund initiated",
+      message: `A refund of ${amount} for your booking has been initiated.`,
+      type: "payment",
+      emailHtml: buildRefundInitiatedEmail(clientName, amount, booking.service as string),
+      emailSubject: "Refund initiated — Capture Connect",
+    });
+  })().catch(() => {});
 }
 
 export async function fetchAllReviews() {
@@ -635,6 +668,27 @@ export async function issueOrderRefund(orderId: number): Promise<void> {
     .eq("order_id", orderId)
     .eq("status", "pro_approved");
   await logAdminAction("issue_order_refund", "order", { orderId });
+
+  // Notify client (fire-and-forget)
+  ;(async () => {
+    const { data: order } = await supabase
+      .from("client_shopping")
+      .select("client_id, email, full_name, total_price")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order?.email || !order?.client_id) return;
+    const clientName = String(order.full_name ?? "there");
+    const amount = `$${Number(order.total_price).toFixed(2)}`;
+    await notify({
+      userId: order.client_id as string,
+      userEmail: order.email as string,
+      title: "Refund initiated",
+      message: `A refund of ${amount} for your order has been initiated.`,
+      type: "payment",
+      emailHtml: buildRefundInitiatedEmail(clientName, amount, "your order"),
+      emailSubject: "Refund initiated — Capture Connect",
+    });
+  })().catch(() => {});
 }
 
 export async function fetchAllOrders() {
@@ -750,6 +804,51 @@ export async function updateTestimonialStatus(
   if (error) throw new Error(error.message);
   const action = status === "approved" ? "approved_testimonial" : "reject_testimonial";
   await logAdminAction(action, "testimonial", { testimonialId: id, status });
+
+  // Notify the submitter (fire-and-forget)
+  ;(async () => {
+    const { data: testimonial } = await supabase
+      .from("landing_testimonials")
+      .select("user_id, userType, name")
+      .eq("id", id)
+      .maybeSingle();
+    if (!testimonial?.user_id) return;
+
+    const userId = testimonial.user_id as string;
+    const displayName = String((testimonial as any).name ?? "there");
+    const userType = String((testimonial as any).userType ?? "client");
+
+    const table = userType === "tradesperson" ? "tradesperson_profiles" : "client_profiles";
+    const { data: profile } = await supabase
+      .from(table)
+      .select("email")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!(profile as any)?.email) return;
+
+    const userEmail = (profile as any).email as string;
+    if (status === "approved") {
+      await notify({
+        userId,
+        userEmail,
+        title: "Testimonial approved",
+        message: "Your testimonial has been approved and is now live on the platform.",
+        type: "admin",
+        emailHtml: buildTestimonialApprovedEmail(displayName),
+        emailSubject: "Testimonial approved — Capture Connect",
+      });
+    } else {
+      await notify({
+        userId,
+        userEmail,
+        title: "Testimonial not approved",
+        message: "Your testimonial could not be approved at this time.",
+        type: "admin",
+        emailHtml: buildTestimonialRejectedEmail(displayName),
+        emailSubject: "Testimonial not approved — Capture Connect",
+      });
+    }
+  })().catch(() => {});
 }
 
 // ─── Admin Verifications ───────────────────────────────────────────────────────
@@ -839,6 +938,55 @@ export async function updateVerificationStatus(
   if (error) throw new Error(error.message);
   const action = status === "approved" ? "approve_verification" : "reject_verification";
   await logAdminAction(action, "verification", { verificationId: id, status, reason });
+
+  // Notify the tradesperson (fire-and-forget)
+  ;(async () => {
+    const { data: request } = await supabase
+      .from("verification_request")
+      .select("user_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!request?.user_id) return;
+
+    const { data: profile } = await supabase
+      .from("tradesperson_profiles")
+      .select("full_name, username, email")
+      .eq("id", request.user_id as string)
+      .maybeSingle();
+    if (!(profile as any)?.email) return;
+
+    const displayName = String(
+      (profile as any).username ?? (profile as any).full_name ?? "there"
+    );
+    const userEmail = (profile as any).email as string;
+
+    if (status === "approved") {
+      await notify({
+        userId: request.user_id as string,
+        userEmail,
+        title: "Verification approved",
+        message: "Congratulations! Your account has been verified.",
+        type: "verification",
+        link: "/pro-dashboard",
+        emailHtml: buildVerificationApprovedEmail(displayName),
+        emailSubject: "Verification approved — Capture Connect",
+      });
+    } else {
+      await notify({
+        userId: request.user_id as string,
+        userEmail,
+        title: "Verification rejected",
+        message: reason ?? "Your verification was not approved. Please resubmit with the correct documents.",
+        type: "verification",
+        link: "/pro-dashboard",
+        emailHtml: buildVerificationRejectedEmail(
+          displayName,
+          reason ?? "Please contact support for more details."
+        ),
+        emailSubject: "Verification rejected — Capture Connect",
+      });
+    }
+  })().catch(() => {});
 }
 
 const ALLOWED_VERIFICATION_FIELDS = new Set(["status", "reason", "notes"]);
@@ -1014,6 +1162,31 @@ export async function toggleUserSuspension(
   if (error) throw new Error(error.message);
   const action = suspend ? "suspend_user" : "reactivate_user";
   await logAdminAction(action, "user", { userId, userType: type });
+
+  // Email the user (fire-and-forget)
+  ;(async () => {
+    const { data: profile } = await supabase
+      .from(table)
+      .select("full_name, username, email")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!(profile as any)?.email) return;
+    const displayName = String((profile as any).username ?? (profile as any).full_name ?? "there");
+    const userEmail = (profile as any).email as string;
+    if (suspend) {
+      await sendNotificationEmail({
+        to: userEmail,
+        subject: "Your account has been suspended — Capture Connect",
+        html: buildSuspensionEmail(displayName, "Please contact our support team for further information."),
+      });
+    } else {
+      await sendNotificationEmail({
+        to: userEmail,
+        subject: "Your account has been reinstated — Capture Connect",
+        html: buildReinstatementEmail(displayName),
+      });
+    }
+  })().catch(() => {});
 }
 
 export async function createAdminUser(data: {
@@ -1126,6 +1299,16 @@ export async function deleteAdminUser(
   ]);
 
   await logAdminAction("delete_user", "user", { userId: id, userType: type });
+
+  // Email the user before their data is gone — profile was fetched above
+  if (profile?.email) {
+    const displayName = String(profile.username ?? profile.full_name ?? "there");
+    sendNotificationEmail({
+      to: profile.email as string,
+      subject: "Your account has been deleted — Capture Connect",
+      html: buildAccountDeletedEmail(displayName, type.toLowerCase()),
+    }).catch(() => {});
+  }
 }
 
 // ─── Overview panel data ───────────────────────────────────────────────────────

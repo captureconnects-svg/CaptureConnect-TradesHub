@@ -7,13 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, ShieldCheck, Hammer, CheckCircle2 } from "lucide-react";
-import bgImg from "@/assets/pro-dashboard.png"
+import { ArrowLeft, ShieldCheck, CheckCircle2 } from "lucide-react";
+import bgImg from "@/assets/pro-dashboard.png";
+import logoImg from "@/assets/logo-withoutBranding.png";
 import { signUpTradesperson, signInTradesperson, signInWithGooglePro } from "@/backend/pro-auth";
 import { getVerificationStatus } from "@/backend/pro-verification";
 import { toast } from "sonner";
 import { getAdminSettings } from "@/backend/admin";
 import { SESSION_START_KEY } from "@/routes/__root";
+import { requestBrowserPermission } from "@/lib/browser-notifications";
 
 export const Route = createFileRoute("/pro-login-signup")({
   head: () => ({
@@ -108,6 +110,7 @@ function ProLoginPage() {
           );
           navigate({ to: "/" });
         } else {
+          requestBrowserPermission();
           navigate({ to: "/pro-dashboard" });
         }
       }
@@ -160,9 +163,16 @@ function ProLoginPage() {
             </ul>
           </div>
 
-          <div className="flex items-center gap-2 text-white/70 text-sm">
-            <Hammer className="h-5 w-5 text-amber-400" />
-            Capture Connect for Pros
+          <div className="flex items-center gap-2">
+            <img
+              src={logoImg}
+              alt="Capture Connect – TradeHub Marketplace"
+              className="h-10 w-auto object-contain"
+            />
+            <span className="flex flex-col leading-tight">
+              <span className="text-sm font-bold tracking-tight text-white">Capture Connect</span>
+              <span className="text-xs font-medium text-amber-400 tracking-wide">TradeHub Marketplace</span>
+            </span>
           </div>
         </div>
       </aside>

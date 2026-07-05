@@ -33,7 +33,10 @@ import { changePassword, deleteAccount } from "@/backend/account-settings";
 import { switchToClientAccount } from "@/backend/switch-account";
 import { fetchMyTestimonials, uploadTestimonialVideo, submitTestimonial, deleteTestimonial, type VideoTestimonialRecord } from "@/backend/testimonials";
 import { Hammer, LayoutDashboard, Upload, UserCog, MessageSquare, Settings, CalendarCheck, Calendar, Wallet, Activity, Eye, LogOut, Bell, Star, DollarSign, Briefcase, Heart, ImagePlus, Send, ArrowUpRight, ArrowDownRight, Info, X, RefreshCw, FileText, ArrowDownCircle, Search, Filter, Lock, Trash2, BarChart2, Users, ShoppingBag, Plus, Tag, Package, Film, FolderOpen, Pencil, Clock, MapPin, Phone, Mail, Check, Truck, ArrowLeft, ClipboardList, Paperclip, AlertTriangle, CheckCircle2, } from "lucide-react";
+import { NotificationBell } from "@/components/trade/notification-bell";
+import { NotificationPreferencesPanel } from "@/components/trade/notification-preferences";
 import { fetchProReturnRequests, approveReturnRequest, declineReturnRequest, fetchReturnEvidence, type ReturnRequest } from "@/backend/return-requests";
+import logoImg from "@/assets/logo-withoutBranding.png";
 import { CATEGORIES, slugifyName } from "@/lib/trades-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,12 +166,15 @@ function ProDashboardPage() {
       <div className="min-h-screen flex w-full bg-background text-foreground">
         <Sidebar collapsible="icon">
           <SidebarHeader>
-            <Link to="/" className="flex items-center gap-2 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-              <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shrink-0">
-                <Hammer className="h-5 w-5 text-primary-foreground" />
-              </div>
-              <span className="font-bold text-lg group-data-[collapsible=icon]:hidden">
-                Capture Connect Pro
+            <Link to="/" className="flex items-center gap-1 px-2 py-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
+              <img
+                src={logoImg}
+                alt="Capture Connect – TradeHub Marketplace"
+                className="h-9 w-auto object-contain shrink-0"
+              />
+              <span className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="font-bold text-sm tracking-tight">Capture Connect</span>
+                <span className="text-xs font-medium text-amber-500 tracking-wide">TradeHub Marketplace</span>
               </span>
             </Link>
           </SidebarHeader>
@@ -230,9 +236,7 @@ function ProDashboardPage() {
               >
                 <Eye className="h-4 w-4" /> <span className="hidden sm:inline">View Public Profile</span>
               </Button>
-              <Button variant="ghost" size="icon" aria-label="Notifications">
-                <Bell className="h-5 w-5" />
-              </Button>
+              <NotificationBell />
               <Avatar className="h-9 w-9">
                 <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
                   {initials || "?"}
@@ -3847,6 +3851,15 @@ function SettingsView() {
             </Button>
           </div>
         </div>
+      </div>
+
+      {/* Notification Preferences */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center gap-2 mb-5">
+          <Bell className="h-4 w-4" />
+          <h3 className="font-semibold">Notification Preferences</h3>
+        </div>
+        <NotificationPreferencesPanel />
       </div>
 
       {/* Account Security + Verification — half-width row */}

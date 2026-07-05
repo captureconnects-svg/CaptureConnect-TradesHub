@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowLeft, Lock, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Bell, Lock, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { DashboardHeader } from "@/components/trade/DashboardHeader";
 import { toast } from "sonner";
 import { changePassword, deleteAccount } from "@/backend/account-settings";
 import { switchToProAccount } from "@/backend/switch-account";
+import { NotificationPreferencesPanel } from "@/components/trade/notification-preferences";
 
 export const Route = createFileRoute("/client-dashboard/settings")({
   head: () => ({
@@ -107,7 +108,19 @@ function SettingsPage() {
           <h1 className="text-2xl font-bold">Settings</h1>
         </div>
 
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Notification Preferences */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Bell className="h-4 w-4" /> Notification Preferences
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <NotificationPreferencesPanel />
+            </CardContent>
+          </Card>
+
           <div className="grid md:grid-cols-2 gap-6 items-start">
             <Card>
               <CardHeader className="pb-2">

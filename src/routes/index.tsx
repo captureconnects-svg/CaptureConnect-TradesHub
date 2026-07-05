@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/lib/theme";
 import { CurrencySelect } from "@/lib/currency";
 import { FooterSection } from "@/components/trade/FooterSection";
-import { Hammer, TrendingUp, Users, Briefcase, ShieldCheck, ArrowRight, Star, CheckCircle2 } from "lucide-react";
+import { TrendingUp, Users, Briefcase, ShieldCheck, ArrowRight, Star, CheckCircle2 } from "lucide-react";
 import heroImg from "@/assets/landing-client.png";
+import logoImg from "@/assets/logo-withoutBranding.png";
 import entrepreneurImg from "@/assets/pro-landing.png";
 import clientImg from "@/assets/client-landing.png";
 import { fetchPageStats, type PageStats } from "@/backend/landing-reviews";
@@ -52,11 +53,16 @@ function Index() {
       {/* NAV */}
       <header className="sticky top-0 z-30 w-full border-b border-border bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="#" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-            <span className="grid h-8 w-8 place-items-center rounded-md bg-amber-500 text-white">
-              <Hammer className="h-4 w-4" />
+          <a href="#" className="flex items-center gap-1">
+            <img
+              src={logoImg}
+              alt="Capture Connect – TradeHub Marketplace"
+              className="h-16 w-auto object-contain"
+            />
+            <span className="flex flex-col leading-tight">
+              <span className="text-base font-bold tracking-tight text-foreground">Capture Connect</span>
+              <span className="text-xs font-medium text-amber-500 tracking-wide">TradeHub Marketplace</span>
             </span>
-            Capture Connect
           </a>
           <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
             <a href="#clients" className="hover:text-foreground transition-colors">For Clients</a>

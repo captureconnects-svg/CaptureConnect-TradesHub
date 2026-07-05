@@ -1,4 +1,10 @@
 import { supabase } from "@/lib/supabase";
+import {
+  sendAdminAlertEmail,
+  buildAdminVerificationAlertEmail,
+  buildDocumentsReceivedEmail,
+} from "@/backend/notification-emails";
+import { notify } from "@/backend/notify";
 
 export type VerificationStatus = "none" | "pending" | "approved" | "rejected";
 
@@ -91,4 +97,34 @@ export async function submitVerificationRequest(files: {
     .insert(docs);
 
   if (docsError) throw new Error(docsError.message);
+
+  // Notify admin + send confirmation to pro (fire-and-forget)
+  ;(async () => {
+    const { data: profile } = await supabase
+      .from("tradesperson_profiles")
+      .select("full_name, username, email")
+      .eq("id", userId)
+      .maybeSingle();
+    const proName = String(
+      (profile as any)?.username ?? (profile as any)?.full_name ?? "A tradesperson"
+    );
+    const proEmail = (profile as any)?.email as string | null ?? authData.user.email ?? null;
+
+    await sendAdminAlertEmail(
+      "New verification request — Capture Connect",
+      buildAdminVerificationAlertEmail(proName, authData.user.email ?? ""),
+    );
+
+    if (proEmail) {
+      await notify({
+        userId,
+        userEmail: proEmail,
+        title: "Documents received",
+        message: "We've received your verification documents. Our team will review them within 1–3 business days.",
+        type: "verification",
+        emailHtml: buildDocumentsReceivedEmail(proName),
+        emailSubject: "Verification documents received — Capture Connect",
+      });
+    }
+  })().catch(() => {});
 }

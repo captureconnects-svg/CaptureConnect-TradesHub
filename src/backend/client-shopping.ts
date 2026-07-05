@@ -1,6 +1,12 @@
 import { supabase } from "@/lib/supabase";
 import type { CartItem } from "@/lib/cart-context";
 import { logActivity } from "@/backend/pro-activity";
+import { notify } from "@/backend/notify";
+import {
+  buildOrderPlacedEmail,
+  buildOrderPaymentReceivedEmail,
+  buildOrderDeliveredEmail,
+} from "@/backend/notification-emails";
 
 export type OrderItem = {
   id: number;
@@ -116,6 +122,49 @@ export async function submitShoppingOrder(params: {
     description: `${params.fullName} placed a shopping order`,
     clientId: authData.user.id,
   }).catch(() => {});
+
+  // Email client confirmation + notify pro of new order (fire-and-forget)
+  ;(async () => {
+    const APP_URL = (import.meta.env.VITE_APP_URL as string | undefined) ?? "https://tradehubmarketplace.com";
+    const orderUrl = `${APP_URL}/client-dashboard/orders`;
+    const totalStr = `$${params.totalPrice.toFixed(2)}`;
+    const clientId = authData.user.id;
+
+    // Email to client
+    if (params.email) {
+      await notify({
+        userId: clientId,
+        userEmail: params.email,
+        title: "Order confirmed",
+        message: `Your order totalling ${totalStr} has been confirmed.`,
+        type: "payment",
+        link: "/client-dashboard/orders",
+        emailHtml: buildOrderPlacedEmail(params.fullName, totalStr, params.shippingMethod, orderUrl),
+        emailSubject: "Order confirmed — Capture Connect",
+      });
+    }
+
+    // Email to pro
+    const proId = params.tradespersonId || authData.user.id;
+    const { data: pro } = await supabase
+      .from("tradesperson_profiles")
+      .select("full_name, username, email")
+      .eq("id", proId)
+      .maybeSingle();
+    if ((pro as any)?.email) {
+      const proName = String((pro as any).username ?? (pro as any).full_name ?? "there");
+      await notify({
+        userId: proId,
+        userEmail: (pro as any).email as string,
+        title: "New order received",
+        message: `${params.fullName} placed an order totalling ${totalStr}.`,
+        type: "payment",
+        link: "/pro-dashboard?view=orders",
+        emailHtml: buildOrderPaymentReceivedEmail(proName, params.fullName, totalStr),
+        emailSubject: "New order payment received — Capture Connect",
+      });
+    }
+  })().catch(() => {});
 
   return shoppingId;
 }
@@ -264,4 +313,34 @@ export async function updateOrderFulfillment(orderId: number): Promise<void> {
     .eq("id", orderId)
     .eq("tradesperson_id", authData.user.id);
   if (error) throw error;
+
+  // Notify client that their order has been fulfilled (fire-and-forget)
+  ;(async () => {
+    const { data: order } = await supabase
+      .from("client_shopping")
+      .select("client_id, full_name, email, shipping_method")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (!order?.email || !order?.client_id) return;
+
+    const APP_URL = (import.meta.env.VITE_APP_URL as string | undefined) ?? "https://tradehubmarketplace.com";
+    await notify({
+      userId: order.client_id as string,
+      userEmail: order.email as string,
+      title: order.shipping_method === "delivery" ? "Order delivered" : "Order ready for pickup",
+      message: order.shipping_method === "delivery"
+        ? "Your order has been marked as delivered."
+        : "Your order is ready for pickup.",
+      type: "payment",
+      link: "/client-dashboard/orders",
+      emailHtml: buildOrderDeliveredEmail(
+        String(order.full_name ?? "there"),
+        order.shipping_method as string,
+        `${APP_URL}/client-dashboard/orders`,
+      ),
+      emailSubject: order.shipping_method === "delivery"
+        ? "Your order has been delivered — Capture Connect"
+        : "Your order is ready for pickup — Capture Connect",
+    });
+  })().catch(() => {});
 }

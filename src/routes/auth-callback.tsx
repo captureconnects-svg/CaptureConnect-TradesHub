@@ -5,6 +5,7 @@ import { getVerificationStatus } from "@/backend/pro-verification";
 import { getAdminSettings } from "@/backend/admin";
 import { toast } from "sonner";
 import { SESSION_START_KEY } from "@/routes/__root";
+import { requestBrowserPermission } from "@/lib/browser-notifications";
 
 export const Route = createFileRoute("/auth-callback")({
   component: AuthCallbackPage,
@@ -17,23 +18,29 @@ function AuthCallbackPage() {
   useEffect(() => {
     async function handleCallback() {
       const url = new URL(window.location.href);
+      const oauthError = url.searchParams.get("error");
+      const oauthErrorDescription = url.searchParams.get("error_description");
+
+      if (oauthError) {
+        setError(oauthErrorDescription ? decodeURIComponent(oauthErrorDescription) : oauthError);
+        return;
+      }
+
       const code = url.searchParams.get("code");
       const type = url.searchParams.get("type") as "client" | "pro" | null;
 
-      // Supabase may have auto-exchanged the code via detectSessionInUrl; check first
-      let user = null;
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData.session?.user) {
-        user = sessionData.session.user;
-      } else if (code) {
-        const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          setError(exchangeError.message);
-          return;
-        }
-        user = data.user;
+      if (!code) {
+        setError("Authentication failed. No authorization code was received.");
+        return;
       }
 
+      const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+      if (exchangeError) {
+        setError(exchangeError.message);
+        return;
+      }
+
+      const user = exchangeData.user;
       if (!user) {
         setError("Authentication failed. Please try again.");
         return;
@@ -97,6 +104,7 @@ function AuthCallbackPage() {
         }
 
         localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+        requestBrowserPermission(); // fire-and-forget; user sees the browser prompt once
         navigate({ to: "/client-dashboard" });
       } else if (type === "pro") {
         // Block deleted accounts before touching any profile data
@@ -163,6 +171,7 @@ function AuthCallbackPage() {
           navigate({ to: "/" });
         } else {
           localStorage.setItem(SESSION_START_KEY, String(Date.now()));
+          requestBrowserPermission(); // fire-and-forget
           navigate({ to: "/pro-dashboard" });
         }
       } else {

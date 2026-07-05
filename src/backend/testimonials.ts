@@ -1,4 +1,10 @@
 import { supabase } from "@/lib/supabase";
+import {
+  sendAdminAlertEmail,
+  buildAdminTestimonialAlertEmail,
+  buildTestimonialSubmittedEmail,
+} from "@/backend/notification-emails";
+import { notify } from "@/backend/notify";
 
 export type TestimonialStatus = "pending" | "approved" | "rejected";
 
@@ -98,7 +104,33 @@ export async function submitTestimonial(params: {
     .single();
 
   if (error) throw new Error(error.message);
-  return mapRow(data as Record<string, unknown>);
+  const record = mapRow(data as Record<string, unknown>);
+
+  // Notify admin + confirm receipt to submitter (fire-and-forget)
+  const userEmail = authData.user.email ?? "";
+  const excerpt = params.description.length > 120
+    ? params.description.slice(0, 120) + "…"
+    : params.description;
+  ;(async () => {
+    await sendAdminAlertEmail(
+      "New testimonial awaiting approval — Capture Connect",
+      buildAdminTestimonialAlertEmail(params.name, userEmail, excerpt),
+    );
+
+    if (userEmail) {
+      await notify({
+        userId: authData.user.id,
+        userEmail,
+        title: "Testimonial received",
+        message: "Thank you! Your testimonial has been received and is under review.",
+        type: "admin",
+        emailHtml: buildTestimonialSubmittedEmail(params.name),
+        emailSubject: "Testimonial received — Capture Connect",
+      });
+    }
+  })().catch(() => {});
+
+  return record;
 }
 
 export async function deleteTestimonial(id: number, videoUrl: string): Promise<void> {

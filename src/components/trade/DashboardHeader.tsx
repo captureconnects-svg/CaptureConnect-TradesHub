@@ -1,6 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Hammer, Heart, User, Calendar, Receipt, Settings, LogOut, Bell, Video } from "lucide-react";
+import { Heart, User, Calendar, Receipt, Settings, LogOut, Video } from "lucide-react";
+import logoImg from "@/assets/logo-withoutBranding.png";
+import { NotificationBell } from "@/components/trade/notification-bell";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,11 +66,16 @@ export function DashboardHeader({ likedCount, onOpenLikes }: Props) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link to="/client-dashboard" className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-            <Hammer className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <span className="font-bold text-lg hidden sm:inline">Capture Connect</span>
+        <Link to="/client-dashboard" className="flex items-center gap-1">
+          <img
+            src={logoImg}
+            alt="Capture Connect – TradeHub Marketplace"
+            className="h-10 w-auto object-contain"
+          />
+          <span className="hidden sm:flex flex-col leading-tight">
+            <span className="text-base font-bold tracking-tight text-foreground">Capture Connect</span>
+            <span className="text-xs font-medium text-amber-500 tracking-wide">TradeHub Marketplace</span>
+          </span>
         </Link>
 
         <div className="flex items-center gap-1 sm:gap-2">
@@ -97,9 +104,7 @@ export function DashboardHeader({ likedCount, onOpenLikes }: Props) {
             )}
           </Button>
 
-          <Button variant="ghost" size="icon" aria-label="Notifications">
-            <Bell className="h-5 w-5" />
-          </Button>
+          <NotificationBell />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

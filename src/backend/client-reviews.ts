@@ -1,5 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { logActivity } from "@/backend/pro-activity";
+import { notify } from "@/backend/notify";
+import { buildReviewReceivedEmail } from "@/backend/notification-emails";
 
 export type ClientReview = {
   id: number;
@@ -44,15 +46,39 @@ export async function submitClientReview(params: {
       .select("full_name, username")
       .eq("id", authData.user!.id)
       .single();
-    const name =
+    const clientName =
       (cp?.username as string | null)?.trim() ||
       (cp?.full_name as string | null)?.trim() ||
       "A client";
     await logActivity({
       tradespersonId: params.tradespersonId,
       activityType: "review",
-      description: `${name} left a ${params.rating}-star review`,
+      description: `${clientName} left a ${params.rating}-star review`,
       clientId: authData.user!.id,
+    });
+
+    // Notify the pro they received a review
+    const { data: pro } = await supabase
+      .from("tradesperson_profiles")
+      .select("full_name, username, email")
+      .eq("id", params.tradespersonId)
+      .maybeSingle();
+    if (!(pro as any)?.email) return;
+
+    const APP_URL = (import.meta.env.VITE_APP_URL as string | undefined) ?? "https://tradehubmarketplace.com";
+    await notify({
+      userId: params.tradespersonId,
+      userEmail: (pro as any).email as string,
+      title: "New review received",
+      message: `${clientName} left you a ${params.rating}-star review.`,
+      type: "review",
+      link: "/pro-dashboard?view=reviews",
+      emailHtml: buildReviewReceivedEmail(
+        String((pro as any).username ?? (pro as any).full_name ?? "there"),
+        params.rating,
+        `${APP_URL}/pro-dashboard?view=reviews`,
+      ),
+      emailSubject: "You received a new review — Capture Connect",
     });
   })().catch(() => {});
 

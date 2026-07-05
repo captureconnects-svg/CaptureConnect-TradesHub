@@ -15,6 +15,7 @@ import { useState, useEffect, useRef } from "react";
 import { Wrench } from "lucide-react";
 import { getAdminSettings } from "@/backend/admin";
 import { supabase } from "@/lib/supabase";
+import { recordActivity } from "@/backend/notify";
 
 export const SESSION_START_KEY = "tradehub-session-start";
 
@@ -136,6 +137,11 @@ function RootComponent() {
       });
     }
   }
+
+  // Record user activity on every route change for inactivity-based email gating
+  useEffect(() => {
+    recordActivity();
+  }, [location.pathname]);
 
   useEffect(() => {
     getAdminSettings().then((s) => {
