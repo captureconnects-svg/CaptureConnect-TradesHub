@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ThemeToggle } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
+import { PublicMobileNav } from "@/components/trade/PublicMobileNav";
 import { Mail, Clock, CheckCircle2 } from "lucide-react";
 import logoImg from "@/assets/logo-withoutBranding.png";
 import { useState } from "react";
@@ -91,7 +92,15 @@ function ContactPage() {
             <Link to="/reviews" className="hover:text-foreground transition-colors">Reviews</Link>
             <Link to="/help" className="hover:text-foreground transition-colors">Help Centre</Link>
           </nav>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <PublicMobileNav>
+              <Link to="/" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Home</Link>
+              <Link to="/reviews" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Reviews</Link>
+              <Link to="/help" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Help Centre</Link>
+              <Link to="/contact" className="rounded-lg px-3 py-3 bg-muted font-medium">Contact</Link>
+            </PublicMobileNav>
+          </div>
         </div>
       </header>
 

@@ -105,7 +105,7 @@ function ProfilePage() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <DashboardHeader likedCount={0} onOpenLikes={() => {}} />
 
-      <main className="flex-1 w-full px-6 py-8">
+      <main className="flex-1 w-full container mx-auto px-4 sm:px-6 py-8 max-w-5xl">
         <div className="flex items-center gap-3 mb-6">
           <Button variant="ghost" size="icon" asChild>
             <Link to="/client-dashboard">
@@ -187,15 +187,15 @@ function ProfilePage() {
                   <CardTitle className="text-gray-900 dark:text-white">Activity Stats</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="flex flex-col items-center gap-2 p-3 rounded-xl bg-muted/30">
+                  <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                    <div className="flex flex-col items-center gap-2 p-2 sm:p-3 rounded-xl bg-muted/30">
                       <div className="h-10 w-10 rounded-lg bg-pink-500/10 flex items-center justify-center">
                         <Heart className="h-5 w-5 text-pink-500" />
                       </div>
                       <p className="text-2xl font-bold">{stats.tradersLiked}</p>
                       <p className="text-xs text-muted-foreground text-center leading-tight">Traders Liked</p>
                     </div>
-                    <div className="flex flex-col items-center gap-2 p-3 rounded-xl bg-muted/30">
+                    <div className="flex flex-col items-center gap-2 p-2 sm:p-3 rounded-xl bg-muted/30">
                       <div className="h-10 w-10 rounded-lg bg-amber-400/10 flex items-center justify-center">
                         <Star className="h-5 w-5 text-amber-400" />
                       </div>
@@ -204,7 +204,7 @@ function ProfilePage() {
                       </p>
                       <p className="text-xs text-muted-foreground text-center leading-tight">Avg Rating Given</p>
                     </div>
-                    <div className="flex flex-col items-center gap-2 p-3 rounded-xl bg-muted/30">
+                    <div className="flex flex-col items-center gap-2 p-2 sm:p-3 rounded-xl bg-muted/30">
                       <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Briefcase className="h-5 w-5 text-primary" />
                       </div>

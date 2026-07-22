@@ -5,6 +5,7 @@ import { Star, ArrowLeft, CheckCircle2, Video } from "lucide-react";
 import logoImg from "@/assets/logo-withoutBranding.png";
 import { ThemeToggle } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
+import { PublicMobileNav } from "@/components/trade/PublicMobileNav";
 import { fetchTopClientReviews, fetchPageStats, type LandingReview, type PageStats } from "@/backend/landing-reviews";
 import { fetchApprovedTestimonials, type VideoTestimonialRecord } from "@/backend/testimonials";
 
@@ -87,7 +88,15 @@ function ReviewsPage() {
             <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
             <Link to="/reviews" className="text-foreground font-medium">Reviews</Link>
           </nav>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <PublicMobileNav>
+              <Link to="/" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Home</Link>
+              <Link to="/reviews" className="rounded-lg px-3 py-3 bg-muted font-medium">Reviews</Link>
+              <Link to="/help" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Help Centre</Link>
+              <Link to="/contact" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Contact</Link>
+            </PublicMobileNav>
+          </div>
         </div>
       </header>
 

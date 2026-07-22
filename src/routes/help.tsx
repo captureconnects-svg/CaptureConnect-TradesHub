@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ThemeToggle } from "@/lib/theme";
 import { Button } from "@/components/ui/button";
+import { PublicMobileNav } from "@/components/trade/PublicMobileNav";
 import logoImg from "@/assets/logo-withoutBranding.png";
 import {
   Search,
@@ -192,7 +193,7 @@ const FAQS: Record<CategoryKey, { q: string; a: string }[]> = {
     },
     {
       q: "Is there a fee to use TradeHub as a client?",
-      a: "Signing up and browsing tradespeople is completely free. A small service fee is only applied when a job is completed and payment is processed through the platform.",
+      a: "Signing up and browsing tradespeople is completely free. A 6% service fee is only applied when a job is completed and payment is processed through the platform.",
     },
     {
       q: "Can I book more than one tradesperson?",
@@ -355,7 +356,15 @@ function HelpPage() {
             <Link to="/reviews" className="hover:text-foreground transition-colors">Reviews</Link>
             <Link to="/help" className="text-foreground font-medium">Help Centre</Link>
           </nav>
-          <ThemeToggle />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <PublicMobileNav>
+              <Link to="/" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Home</Link>
+              <Link to="/reviews" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Reviews</Link>
+              <Link to="/help" className="rounded-lg px-3 py-3 bg-muted font-medium">Help Centre</Link>
+              <Link to="/contact" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Contact</Link>
+            </PublicMobileNav>
+          </div>
         </div>
       </header>
 

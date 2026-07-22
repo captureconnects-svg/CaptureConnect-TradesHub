@@ -973,13 +973,15 @@ function BookingsPage() {
           <p className="text-muted-foreground text-sm text-center py-16">Loading your services…</p>
         ) : (
           <Tabs defaultValue="upcoming">
-            <TabsList>
-              <TabsTrigger value="upcoming">Upcoming ({upcoming.length})</TabsTrigger>
-              <TabsTrigger value="past">Past Bookings ({past.length})</TabsTrigger>
-              <TabsTrigger value="purchases">
-                Past Purchases {orders.length > 0 && `(${orders.length})`}
-              </TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <TabsList className="w-max sm:w-auto">
+                <TabsTrigger value="upcoming">Upcoming ({upcoming.length})</TabsTrigger>
+                <TabsTrigger value="past">Past Bookings ({past.length})</TabsTrigger>
+                <TabsTrigger value="purchases">
+                  Past Purchases {orders.length > 0 && `(${orders.length})`}
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="upcoming" className="mt-4 space-y-3">
               {upcoming.length === 0 ? (

@@ -9,10 +9,13 @@ import {
   fetchConversations,
   fetchMessages,
   sendMessageWithFile,
+  resolveRealtimeMessage,
   type Conversation,
   type ConversationMessage,
 } from "@/backend/conversations";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 
 export const Route = createFileRoute("/client-dashboard/messages")({
   head: () => ({
@@ -59,6 +62,7 @@ function MessagesPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +74,8 @@ function MessagesPage() {
       })
       .catch(() => toast.error("Failed to load conversations."))
       .finally(() => setLoading(false));
+
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
 
   useEffect(() => {
@@ -80,6 +86,32 @@ function MessagesPage() {
       .catch(() => toast.error("Failed to load messages."))
       .finally(() => setMsgLoading(false));
   }, [activeConvoId]);
+
+  // Live-append messages the other party sends in the open thread.
+  useRealtimeTable<{ id: number; convo_id: number; sender_id: string; content: string; created_at: string; file_url: string | null }>({
+    enabled: activeConvoId !== null && !!userId,
+    table: "conversations_msg",
+    filter: `convo_id=eq.${activeConvoId}`,
+    events: ["INSERT"],
+    onChange: (_event, row) => {
+      if (row.sender_id === userId) return; // own message already appended optimistically
+      resolveRealtimeMessage(row, userId!).then((msg) => {
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      });
+    },
+  });
+
+  // Live-refresh the conversation list (previews/ordering) whenever any of the
+  // user's conversations gets a new message, even ones not currently open.
+  useRealtimeTable({
+    enabled: !!userId,
+    table: "conversations",
+    filter: `client_id=eq.${userId}`,
+    events: ["UPDATE"],
+    onChange: () => {
+      fetchConversations().then(setConversations).catch(() => {});
+    },
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -135,8 +167,12 @@ function MessagesPage() {
             <p className="text-xs">Start a conversation from a tradesperson&apos;s profile.</p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-200px)] min-h-[500px]">
-            <div className="rounded-xl border border-border bg-card overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-200px)] min-h-[500px]">
+            <div
+              className={`rounded-xl border border-border bg-card overflow-y-auto ${
+                activeConvoId ? "hidden md:block" : "block"
+              }`}
+            >
               {conversations.map((c) => (
                 <button
                   key={c.id}
@@ -170,10 +206,23 @@ function MessagesPage() {
               ))}
             </div>
 
-            <div className="rounded-xl border border-border bg-card flex flex-col">
+            <div
+              className={`rounded-xl border border-border bg-card flex-col ${
+                activeConvoId ? "flex" : "hidden md:flex"
+              }`}
+            >
               {activeConvo ? (
                 <>
                   <div className="p-4 border-b border-border flex items-center gap-3">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setActiveConvoId(null)}
+                      title="Back to conversations"
+                      className="shrink-0 md:hidden -ml-2"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                    </Button>
                     <Avatar className="h-9 w-9">
                       {activeConvo.otherPartyImage && (
                         <AvatarImage src={activeConvo.otherPartyImage} alt={activeConvo.otherPartyName} />
@@ -188,7 +237,7 @@ function MessagesPage() {
                       variant="ghost"
                       onClick={() => setActiveConvoId(null)}
                       title="Close chat"
-                      className="shrink-0"
+                      className="shrink-0 hidden md:inline-flex"
                     >
                       <X className="h-4 w-4" />
                     </Button>

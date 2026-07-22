@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import React, { useState, useEffect, useRef, type ReactNode } from "react";
 import { getProProfile } from "@/backend/pro-profile";
 import { getSpecialtyFeatureFlags } from "@/backend/pro-specialty-features";
-import { fetchProProfileData, updateProProfileData, uploadProProfileImage, deleteProProfileImage,
+import { uploadProProfileImage, deleteProProfileImage,
   ensureProProfileExists,
   type EditProfileData,
   type DiscountCode,
@@ -11,19 +11,25 @@ import { fetchProProfileData, updateProProfileData, uploadProProfileImage, delet
   type TradeAddon,
   type Faq,
 } from "@/backend/pro-edit-profile";
-import { fetchMerchandise, addMerchandiseItem, updateMerchandiseItem, deleteMerchandiseItem, addVariant, updateVariant, deleteVariant, uploadMerchandiseImage, saveMerchandiseImageUrl, deleteMerchandiseImageUrl, type MerchandiseItem, type MerchandiseVariant, type MerchandiseItemWithVariants, type MerchandiseImage } from "@/backend/pro-merchandise";
+import { useProProfile } from "@/hooks/queries/useProProfile";
+import { addMerchandiseItem, updateMerchandiseItem, deleteMerchandiseItem, addVariant, updateVariant, deleteVariant, uploadMerchandiseImage, saveMerchandiseImageUrl, deleteMerchandiseImageUrl, type MerchandiseItem, type MerchandiseVariant, type MerchandiseItemWithVariants, type MerchandiseImage } from "@/backend/pro-merchandise";
+import { useMerchandise } from "@/hooks/queries/useMerchandise";
 import { fetchMyDeliveryFee, saveDeliveryFee } from "@/backend/delivery-fee";
 import { fetchProOrders, updateOrderFulfillment, type ProOrderRecord } from "@/backend/client-shopping";
-import { fetchMyReviews, type ClientReview } from "@/backend/client-reviews";
+import { useMyReviews } from "@/hooks/queries/useReviews";
 import { fetchProStats, type ProStats } from "@/backend/pro-stats";
-import { fetchPortfolios, createPortfolio, updatePortfolio, uploadPortfolioMedia, savePortfolioMediaUrl, deletePortfolioMedia, deletePortfolio, MAX_MEDIA_PER_PORTFOLIO, type Portfolio, type PortfolioMedia } from "@/backend/pro-portfolio";
-import { fetchProBookings, updateBookingStatus, rescheduleBooking, markBookingPaid, type ProBookingRecord } from "@/backend/client-bookings";
+import { MAX_MEDIA_PER_PORTFOLIO, type Portfolio, type PortfolioMedia } from "@/backend/pro-portfolio";
+import { usePortfolios } from "@/hooks/queries/usePortfolios";
+import { fetchProBookings, updateBookingStatus, rescheduleBooking, type ProBookingRecord } from "@/backend/client-bookings";
+import { supabase } from "@/lib/supabase";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 import { fetchProActivity, fetchProActivityStats, type ActivityRecord } from "@/backend/pro-activity";
 import {
   fetchConversations,
   fetchMessages,
   sendMessage,
   sendMessageWithAttachments,
+  resolveRealtimeMessage,
   type Conversation,
   type ConversationMessage,
 } from "@/backend/conversations";
@@ -32,10 +38,15 @@ import { getVerificationStatus } from "@/backend/pro-verification";
 import { changePassword, deleteAccount } from "@/backend/account-settings";
 import { switchToClientAccount } from "@/backend/switch-account";
 import { fetchMyTestimonials, uploadTestimonialVideo, submitTestimonial, deleteTestimonial, type VideoTestimonialRecord } from "@/backend/testimonials";
-import { Hammer, LayoutDashboard, Upload, UserCog, MessageSquare, Settings, CalendarCheck, Calendar, Wallet, Activity, Eye, LogOut, Bell, Star, DollarSign, Briefcase, Heart, ImagePlus, Send, ArrowUpRight, ArrowDownRight, Info, X, RefreshCw, FileText, ArrowDownCircle, Search, Filter, Lock, Trash2, BarChart2, Users, ShoppingBag, Plus, Tag, Package, Film, FolderOpen, Pencil, Clock, MapPin, Phone, Mail, Check, Truck, ArrowLeft, ClipboardList, Paperclip, AlertTriangle, CheckCircle2, } from "lucide-react";
+import { Hammer, LayoutDashboard, Upload, UserCog, MessageSquare, Settings, CalendarCheck, Calendar, Wallet, Activity, Eye, LogOut, Bell, Star, DollarSign, Briefcase, Heart, HeartCrack, ImagePlus, Send, ArrowUpRight, ArrowDownRight, Info, X, RefreshCw, FileText, ArrowDownCircle, Search, Filter, Lock, Trash2, BarChart2, Users, ShoppingBag, Plus, Tag, Package, Film, FolderOpen, Pencil, Clock, MapPin, Phone, Mail, Check, Truck, ArrowLeft, ClipboardList, Paperclip, AlertTriangle, CheckCircle2, ExternalLink, Landmark, Receipt, } from "lucide-react";
 import { NotificationBell } from "@/components/trade/notification-bell";
 import { NotificationPreferencesPanel } from "@/components/trade/notification-preferences";
 import { fetchProReturnRequests, approveReturnRequest, declineReturnRequest, fetchReturnEvidence, type ReturnRequest } from "@/backend/return-requests";
+import { fetchProPayments } from "@/lib/payments/ledger";
+import { fetchConnectStatus, startOnboarding } from "@/lib/payments/stripeConnect";
+import { getPayoutLabel, type Payment, type TradespersonStripeAccount } from "@/lib/payments/types";
+import { fetchBankDetails } from "@/backend/pro-banking";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logoImg from "@/assets/logo-withoutBranding.png";
 import { CATEGORIES, slugifyName } from "@/lib/trades-data";
 import { Button } from "@/components/ui/button";
@@ -51,7 +62,28 @@ import { ThemeToggle } from "@/lib/theme";
 import { CurrencySelect, useCurrency } from "@/lib/currency";
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, SidebarHeader, SidebarFooter, } from "@/components/ui/sidebar";
 
+type View =
+  | "overview"
+  | "profile"
+  | "messages"
+  | "bookings"
+  | "payments"
+  | "activity"
+  | "settings"
+  | "merchandise"
+  | "portfolio"
+  | "testimonials";
+
+const VIEW_VALUES: View[] = [
+  "overview", "profile", "messages", "bookings", "payments",
+  "activity", "settings", "merchandise", "portfolio", "testimonials",
+];
+
 export const Route = createFileRoute("/pro-dashboard")({
+  validateSearch: (search: Record<string, unknown>): { view?: View } => {
+    const v = search.view as View | undefined;
+    return v && VIEW_VALUES.includes(v) ? { view: v } : {};
+  },
   head: () => ({
     meta: [
       { title: "Pro Dashboard — Capture Connect" },
@@ -64,18 +96,6 @@ export const Route = createFileRoute("/pro-dashboard")({
   }),
   component: ProDashboardPage,
 });
-
-type View =
-  | "overview"
-  | "profile"
-  | "messages"
-  | "bookings"
-  | "payments"
-  | "activity"
-  | "settings"
-  | "merchandise"
-  | "portfolio"
-  | "testimonials";
 
 const NAV: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -91,13 +111,19 @@ const NAV: { id: View; label: string; icon: typeof LayoutDashboard }[] = [
 ];
 
 function ProDashboardPage() {
-  const [view, setView] = useState<View>("overview");
+  const { view: initialView } = Route.useSearch();
+  const [view, setView] = useState<View>(initialView ?? "overview");
   const [userName, setUserName] = useState<string>("");
   const [proId, setProId] = useState<string>("");
   const [proSlug, setProSlug] = useState<string>("");
-  const [tradeSpecialties, setTradeSpecialties] = useState<string[]>([]);
   const [verificationReady, setVerificationReady] = useState(false);
   const navigate = useNavigate();
+
+  // Shares the same react-query cache as EditProfile's useProProfile() below,
+  // so a profile save (which patches that cache) refreshes this page's
+  // nav-link/card visibility immediately instead of only after a reload.
+  const { profile: proProfileData } = useProProfile({ enabled: verificationReady });
+  const tradeSpecialties = proProfileData?.tradeSpecialties ?? [];
 
   useEffect(() => {
     getVerificationStatus().then(({ status }) => {
@@ -120,16 +146,15 @@ function ProDashboardPage() {
           setProId(profile.id);
         }
       });
-      fetchProProfileData().then((data) => {
-        if (data) {
-          setTradeSpecialties(data.tradeSpecialties ?? []);
-          const dbName = data.username || data.fullName;
-          if (dbName) setUserName(dbName);
-          setProSlug(data.username || slugifyName(data.fullName ?? ""));
-        }
-      });
     });
   }, []);
+
+  useEffect(() => {
+    if (!proProfileData) return;
+    const dbName = proProfileData.username || proProfileData.fullName;
+    if (dbName) setUserName(dbName);
+    setProSlug(proProfileData.username || slugifyName(proProfileData.fullName ?? ""));
+  }, [proProfileData]);
 
   const { showMerchandise, showBookings, showPortfolio } = getSpecialtyFeatureFlags(tradeSpecialties);
   const retailOnly = showMerchandise && !showBookings;
@@ -268,6 +293,7 @@ function ProDashboardPage() {
 const ACTIVITY_TYPE_CONFIG: Record<string, { icon: typeof Eye; label: string; iconColor: string; iconBg: string }> = {
   view:    { icon: Eye,           label: "Profile View", iconColor: "text-blue-500",    iconBg: "bg-blue-500/10" },
   like:    { icon: Heart,         label: "Like",         iconColor: "text-pink-500",    iconBg: "bg-pink-500/10" },
+  unlike:  { icon: HeartCrack,    label: "Unlike",       iconColor: "text-slate-400",   iconBg: "bg-slate-400/10" },
   review:  { icon: Star,          label: "Review",       iconColor: "text-amber-400",   iconBg: "bg-amber-400/10" },
   message: { icon: MessageSquare, label: "Message",      iconColor: "text-blue-400",    iconBg: "bg-blue-400/10" },
   booking: { icon: CalendarCheck, label: "Booking",      iconColor: "text-emerald-500", iconBg: "bg-emerald-500/10" },
@@ -367,16 +393,15 @@ function Overview({
     totalMerchandise: 0,
   });
   const [upcomingBookings, setUpcomingBookings] = useState<ProBookingRecord[]>([]);
-  const [reviews, setReviews] = useState<ClientReview[]>([]);
+  const { data: reviews = [], isLoading: loadingReviews } = useMyReviews(3);
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingBookings, setLoadingBookings] = useState(true);
-  const [loadingReviews, setLoadingReviews] = useState(true);
   const [recentActivities, setRecentActivities] = useState<ActivityRecord[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [recentOrders, setRecentOrders] = useState<ProOrderRecord[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
 
-  useEffect(() => {
+  function loadCore() {
     fetchProStats()
       .then(setStats)
       .catch(() => {})
@@ -394,16 +419,13 @@ function Overview({
       .catch(() => {})
       .finally(() => setLoadingBookings(false));
 
-    fetchMyReviews(3)
-      .then(setReviews)
-      .catch(() => {})
-      .finally(() => setLoadingReviews(false));
-
     fetchProActivity(3)
       .then(setRecentActivities)
       .catch(() => {})
       .finally(() => setLoadingActivity(false));
-  }, []);
+  }
+
+  useEffect(loadCore, []);
 
   useEffect(() => {
     if (!(retailOnly || retailMixed)) return;
@@ -413,6 +435,24 @@ function Overview({
       .catch(() => {})
       .finally(() => setLoadingOrders(false));
   }, [retailOnly, retailMixed]);
+
+  // A new booking, order, or message all log a client_activity row for this
+  // pro, so one subscription covers "you got a new request/order/message"
+  // live without reloading the dashboard.
+  useRealtimeTable({
+    enabled: !!proId,
+    table: "client_activity",
+    filter: `tradesperson_id=eq.${proId}`,
+    events: ["INSERT"],
+    onChange: () => {
+      loadCore();
+      if (retailOnly || retailMixed) {
+        fetchProOrders()
+          .then((all) => setRecentOrders(all.filter((o) => !o.isDelivered).slice(0, 3)))
+          .catch(() => {});
+      }
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -479,7 +519,7 @@ function Overview({
           />
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCard
             icon={Star}
             label="Total Reviews"
@@ -788,7 +828,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
       const url = await uploadProProfileImage(file);
       setProfileImage(url);
       // Persist the new URL immediately so a page refresh keeps the image
-      await updateProProfileData({
+      await saveProfile({
         fullName, username, dob, gender, email, location, yearsExp,
         bio, certifications, tradeSpecialties,
         workDays: DAYS_OF_WEEK
@@ -811,7 +851,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
     try {
       await deleteProProfileImage(profileImage);
       setProfileImage("");
-      await updateProProfileData({
+      await saveProfile({
         fullName, username, dob, gender, email, location, yearsExp,
         bio, certifications, tradeSpecialties,
         workDays: DAYS_OF_WEEK
@@ -827,41 +867,42 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
     }
   }
 
+  const { profile, isLoading: profileLoading, saveProfile } = useProProfile();
+
   useEffect(() => {
-    fetchProProfileData().then((data) => {
-      if (data) {
-        setFullName(data.fullName);
-        setUsername(data.username);
-        setDob(data.dob);
-        setGender(data.gender);
-        setEmail(data.email);
-        setLocation(data.location);
-        setYearsExp(data.yearsExp);
-        setBio(data.bio);
-        setCertifications(data.certifications);
-        setWorkDays(data.workDays);
-        const sched: Record<string, { start: string; end: string }> =
-          Object.fromEntries(DAYS_OF_WEEK.map((d) => [d, { start: "", end: "" }]));
-        (data.workDays ?? []).forEach((wd) => {
-          if ((DAYS_OF_WEEK as readonly string[]).includes(wd.workday)) {
-            sched[wd.workday] = { start: wd.startTime, end: wd.endTime };
-          }
-        });
-        setWeekSchedule(sched);
-        setProfileVisibility(data.profileVisibility);
-        setResponseTime(data.responseTime);
-        setActiveRole(data.activeRole);
-        setProfileImage(data.profileImage);
-        setTradeSpecialty(data.tradeSpecialty);
-        setTradeSpecialties(data.tradeSpecialties);
-        setDiscountCodes(data.discountCodes);
-        setPackages(data.packages);
-        setAddons(data.addons);
-        setFaqs(data.faqs);
-      }
-      setLoading(false);
-    });
-  }, []);
+    if (profile) {
+      const data = profile;
+      setFullName(data.fullName);
+      setUsername(data.username);
+      setDob(data.dob);
+      setGender(data.gender);
+      setEmail(data.email);
+      setLocation(data.location);
+      setYearsExp(data.yearsExp);
+      setBio(data.bio);
+      setCertifications(data.certifications);
+      setWorkDays(data.workDays);
+      const sched: Record<string, { start: string; end: string }> =
+        Object.fromEntries(DAYS_OF_WEEK.map((d) => [d, { start: "", end: "" }]));
+      (data.workDays ?? []).forEach((wd) => {
+        if ((DAYS_OF_WEEK as readonly string[]).includes(wd.workday)) {
+          sched[wd.workday] = { start: wd.startTime, end: wd.endTime };
+        }
+      });
+      setWeekSchedule(sched);
+      setProfileVisibility(data.profileVisibility);
+      setResponseTime(data.responseTime);
+      setActiveRole(data.activeRole);
+      setProfileImage(data.profileImage);
+      setTradeSpecialty(data.tradeSpecialty);
+      setTradeSpecialties(data.tradeSpecialties);
+      setDiscountCodes(data.discountCodes);
+      setPackages(data.packages);
+      setAddons(data.addons);
+      setFaqs(data.faqs);
+    }
+    if (!profileLoading) setLoading(false);
+  }, [profile, profileLoading]);
 
   async function handleSave() {
     setSaving(true);
@@ -876,7 +917,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
         packages, addons, faqs,
         profileVisibility, responseTime, activeRole, profileImage, tradeSpecialty,
       };
-      await updateProProfileData(profileData);
+      await saveProfile(profileData);
       setSaveMsg({ type: "success", text: "Profile saved successfully." });
     } catch (err) {
       setSaveMsg({ type: "error", text: err instanceof Error ? err.message : "Failed to save." });
@@ -1054,7 +1095,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Code</Label>
                     <Input
@@ -1162,7 +1203,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
               const hours = weekSchedule[day];
               const isClosed = !hours.start && !hours.end;
               return (
-                <div key={day} className="flex items-center gap-3">
+                <div key={day} className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <span className="w-24 text-sm font-medium shrink-0">{day}</span>
                   <Input
                     type="time"
@@ -1170,7 +1211,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
                     onChange={(e) =>
                       setWeekSchedule((prev) => ({ ...prev, [day]: { ...prev[day], start: e.target.value } }))
                     }
-                    className="h-8 text-sm w-32"
+                    className="h-8 text-sm w-28 sm:w-32"
                   />
                   <span className="text-xs text-muted-foreground shrink-0">to</span>
                   <Input
@@ -1179,7 +1220,7 @@ function EditProfile({ showPackagesAndAddons }: { showPackagesAndAddons: boolean
                     onChange={(e) =>
                       setWeekSchedule((prev) => ({ ...prev, [day]: { ...prev[day], end: e.target.value } }))
                     }
-                    className="h-8 text-sm w-32"
+                    className="h-8 text-sm w-28 sm:w-32"
                   />
                   {isClosed ? (
                     <Badge variant="outline" className="text-xs text-muted-foreground shrink-0">Closed</Badge>
@@ -1448,6 +1489,7 @@ function Messages() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -1459,6 +1501,8 @@ function Messages() {
       })
       .catch(() => toast.error("Failed to load conversations."))
       .finally(() => setLoading(false));
+
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
 
   useEffect(() => {
@@ -1469,6 +1513,32 @@ function Messages() {
       .catch(() => toast.error("Failed to load messages."))
       .finally(() => setMsgLoading(false));
   }, [activeConvoId]);
+
+  // Live-append messages the other party sends in the open thread.
+  useRealtimeTable<{ id: number; convo_id: number; sender_id: string; content: string; created_at: string; file_url: string | null }>({
+    enabled: activeConvoId !== null && !!userId,
+    table: "conversations_msg",
+    filter: `convo_id=eq.${activeConvoId}`,
+    events: ["INSERT"],
+    onChange: (_event, row) => {
+      if (row.sender_id === userId) return; // own message already appended optimistically
+      resolveRealtimeMessage(row, userId!).then((msg) => {
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      });
+    },
+  });
+
+  // Live-refresh the conversation list (previews/ordering) whenever any of the
+  // pro's conversations gets a new message, even ones not currently open.
+  useRealtimeTable({
+    enabled: !!userId,
+    table: "conversations",
+    filter: `tradesperson_id=eq.${userId}`,
+    events: ["UPDATE"],
+    onChange: () => {
+      fetchConversations().then(setConversations).catch(() => {});
+    },
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1520,8 +1590,12 @@ function Messages() {
   }
 
   return (
-    <div className="grid md:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-160px)] min-h-[500px]">
-      <div className="rounded-xl border border-border bg-card overflow-y-auto">
+    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4 h-[calc(100vh-160px)] min-h-[500px]">
+      <div
+        className={`rounded-xl border border-border bg-card overflow-y-auto ${
+          activeConvoId ? "hidden md:block" : "block"
+        }`}
+      >
         {conversations.map((c) => (
           <button
             key={c.id}
@@ -1542,10 +1616,23 @@ function Messages() {
           </button>
         ))}
       </div>
-      <div className="rounded-xl border border-border bg-card flex flex-col">
+      <div
+        className={`rounded-xl border border-border bg-card flex-col ${
+          activeConvoId ? "flex" : "hidden md:flex"
+        }`}
+      >
         {activeConvo && (
           <>
             <div className="p-4 border-b border-border flex items-center gap-3">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setActiveConvoId(null)}
+                title="Back to conversations"
+                className="shrink-0 md:hidden -ml-2 text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
               <Avatar className="h-9 w-9">
                 {activeConvo.otherPartyImage && (
                   <AvatarImage src={activeConvo.otherPartyImage} alt={activeConvo.otherPartyName} />
@@ -1560,7 +1647,7 @@ function Messages() {
                 variant="ghost"
                 onClick={() => setActiveConvoId(null)}
                 title="Close chat"
-                className="text-muted-foreground hover:text-foreground"
+                className="hidden md:inline-flex text-muted-foreground hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -1579,6 +1666,8 @@ function Messages() {
                         <img
                           src={m.fileUrl}
                           alt="attachment"
+                          loading="lazy"
+                          decoding="async"
                           className="max-w-[220px] rounded-lg mt-1 block"
                         />
                       ) : (
@@ -1678,6 +1767,7 @@ function Bookings() {
   const [bookingApproving, setBookingApproving] = useState(false);
   const [bookingEvidenceUrls, setBookingEvidenceUrls] = useState<string[]>([]);
   const [bookingEvidenceLoading, setBookingEvidenceLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([fetchProBookings(), fetchProReturnRequests()])
@@ -1687,7 +1777,21 @@ function Bookings() {
       })
       .catch(() => toast.error("Failed to load bookings."))
       .finally(() => setLoading(false));
+
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
+
+  // A new booking (INSERT) or a client-side change like a cancellation (UPDATE)
+  // can touch fields resolved via joins (package name, addons), so refetch the
+  // mapped list rather than patching raw columns from the realtime payload.
+  useRealtimeTable({
+    enabled: !!userId,
+    table: "client_bookings",
+    filter: `tradesperson_id=eq.${userId}`,
+    onChange: () => {
+      fetchProBookings().then(setBookings).catch(() => {});
+    },
+  });
 
   const rrByBooking: Record<string, ReturnRequest> = {};
   for (const rr of bookingReturnRequests) {
@@ -1720,23 +1824,6 @@ function Bookings() {
       toast.success("Return request declined.");
     } catch {
       toast.error("Failed to decline request.");
-    }
-  }
-
-  async function handleMarkPaid(id: string) {
-    setUpdating((prev) => new Set(prev).add(id));
-    try {
-      await markBookingPaid(id);
-      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, paymentStatus: "paid" } : b)));
-      toast.success("Booking marked as paid.");
-    } catch {
-      toast.error("Failed to mark booking as paid.");
-    } finally {
-      setUpdating((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
     }
   }
 
@@ -2034,21 +2121,6 @@ function Bookings() {
                   </div>
                 )}
 
-                {/* Card footer — mark paid for completed unpaid bookings */}
-                {b.status === "completed" && b.paymentStatus !== "paid" && !rrByBooking[b.id] && (
-                  <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-border bg-muted/10">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-600"
-                      disabled={busy}
-                      onClick={() => handleMarkPaid(b.id)}
-                    >
-                      <DollarSign className="h-3.5 w-3.5" /> Mark as Paid
-                    </Button>
-                  </div>
-                )}
-
                 {/* Card footer — completed booking return request */}
                 {b.status === "completed" && rrByBooking[b.id] && (
                   <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-border bg-muted/10 flex-wrap">
@@ -2146,17 +2218,6 @@ function Bookings() {
                       <X className="h-3.5 w-3.5" /> Cancel Booking
                     </Button>
                     <div className="flex items-center gap-3 flex-wrap">
-                      {b.paymentStatus !== "paid" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-600"
-                          disabled={busy}
-                          onClick={() => handleMarkPaid(b.id)}
-                        >
-                          <DollarSign className="h-3.5 w-3.5" /> Mark as Paid
-                        </Button>
-                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -2300,6 +2361,8 @@ function Bookings() {
                       <img
                         src={url}
                         alt={`Evidence ${i + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         className="h-20 w-20 rounded-lg object-cover border border-border hover:opacity-80 transition-opacity"
                       />
                     </a>
@@ -2367,34 +2430,139 @@ function Bookings() {
   );
 }
 
+// Stripe Connect onboarding isn't turned on for pros yet — payouts are sent
+// manually (bank wire) with a receipt, see NotifyPayoutSentDialog in the
+// admin dashboard route. Flip this to true once Connect is ready to launch;
+// nothing else needs to change.
+const STRIPE_CONNECT_ENABLED = false;
+
 function Payments() {
   const { format } = useCurrency();
+  const navigate = useNavigate();
+  const [userId, setUserId] = useState<string | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [connectStatus, setConnectStatus] = useState<TradespersonStripeAccount | null>(null);
+  const [hasBankDetails, setHasBankDetails] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [onboarding, setOnboarding] = useState(false);
 
-  const payments = [
-    { ref: "ElecXr8K", client: "Sarah Bennett",  service: "Panel Upgrade",        amount: 640,  date: "1/26/2026", method: "Bank Transfer", refund: null,  status: "paid" },
-    { ref: "Plmb2Qw9", client: "James Foster",   service: "EV Charger Install",   amount: 980,  date: "1/26/2026", method: "Card",          refund: null,  status: "paid" },
-    { ref: "RoofTj4M", client: "Aisha Khan",     service: "Roof Repair",          amount: 420,  date: "1/25/2026", method: "Bank Transfer", refund: null,  status: "paid" },
-    { ref: "HvacPo7N", client: "Diego Morales",  service: "HVAC Service",         amount: 180,  date: "1/25/2026", method: "Link",          refund: null,  status: "paid" },
-    { ref: "CarpLs2R", client: "Emily Walsh",    service: "Carpentry Work",       amount: 320,  date: "1/25/2026", method: "Card",          refund: null,  status: "paid" },
-    { ref: "WeldKa5T", client: "Tom Caldwell",   service: "Welding Job",          amount: 560,  date: "1/24/2026", method: "Bank Transfer", refund: 560,   status: "refunded" },
-  ];
+  async function load(uid: string) {
+    setLoading(true);
+    try {
+      const [ps, status, bankDetails] = await Promise.all([
+        fetchProPayments(uid),
+        STRIPE_CONNECT_ENABLED ? fetchConnectStatus(uid) : Promise.resolve(null),
+        fetchBankDetails().catch(() => null),
+      ]);
+      setPayments(ps);
+      setConnectStatus(status);
+      setHasBankDetails(Boolean(bankDetails));
+    } catch {
+      // Non-fatal — the page still renders with whatever loaded.
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const totalEarnings   = payments.reduce((s, p) => s + p.amount, 0);
-  const totalRefunds    = payments.reduce((s, p) => s + (p.refund ?? 0), 0);
-  const totalRemaining  = totalEarnings - totalRefunds;
-  const refundCount     = payments.filter((p) => p.refund).length;
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      const uid = data.user?.id ?? null;
+      setUserId(uid);
+      if (uid) load(uid);
+    });
+
+    const onboardingResult = new URLSearchParams(window.location.search).get("onboarding");
+    if (onboardingResult === "return") {
+      toast.success("Stripe onboarding complete — syncing your account status…");
+    } else if (onboardingResult === "refresh") {
+      toast.info("Your onboarding link expired — click Connect again to get a new one.");
+    }
+  }, []);
+
+  async function handleConnect() {
+    setOnboarding(true);
+    try {
+      const url = await startOnboarding();
+      window.location.href = url;
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to start Stripe onboarding.");
+      setOnboarding(false);
+    }
+  }
+
+  // A partial refund still owes the pro whatever's left of it — actual_payout_amount
+  // is reduced, not zeroed, and status becomes "partially_refunded" rather than
+  // staying "succeeded" — so it must stay counted as earnings/escrow. Only a full
+  // refund (status "refunded", actual_payout_amount 0) drops out entirely.
+  const succeededPayments = payments.filter((p) => p.status === "succeeded" || p.status === "partially_refunded");
+  const totalEarnings = succeededPayments.reduce((s, p) => s + (p.actual_payout_amount ?? 0), 0);
+  const totalReleased = payments.filter((p) => p.payout_status === "released").reduce((s, p) => s + (p.actual_payout_amount ?? 0), 0);
+  // Only genuinely escrowed payments count here — a paid job that hasn't
+  // been marked completed yet sits in the "marketplace" bucket instead (see
+  // getPayoutLabel), not escrow.
+  const totalEscrow = succeededPayments
+    .filter((p) => p.escrow_started_at && p.payout_status !== "released")
+    .reduce((s, p) => s + (p.actual_payout_amount ?? 0), 0);
+  const totalRefunds = payments.reduce((s, p) => s + (p.refunded_amount ?? 0), 0);
+  const refundCount = payments.filter((p) => p.refunded_amount > 0).length;
+
+  const needsOnboarding = STRIPE_CONNECT_ENABLED && !connectStatus?.payouts_enabled;
 
   return (
     <div className="space-y-6">
-      {/* Actions */}
-      <div className="flex items-center justify-between">
-        <Button className="gap-2">+ Add Payment Method</Button>
-        <Button variant="outline">View Payout Receipts</Button>
+      {needsOnboarding && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">Connect your Stripe account to receive payouts</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {connectStatus?.stripe_connect_account_id
+                  ? "Your onboarding isn't complete yet — finish it to start receiving released payouts."
+                  : "You haven't started Stripe onboarding yet. Payments you earn are held until this is complete."}
+              </p>
+            </div>
+          </div>
+          <Button onClick={handleConnect} disabled={onboarding} className="gap-2 shrink-0">
+            {onboarding ? "Redirecting…" : "Connect with Stripe"} <ExternalLink className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
+      {/* Bank details */}
+      <div className="rounded-xl border border-border bg-card p-5 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <Landmark className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Bank Account Details</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {hasBankDetails
+                ? "Your automatic payouts are sent to this account once a job is completed and verified."
+                : "Add your bank account so we know where to send your automatic payouts."}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => navigate({ to: "/pro-payouts" })}
+            className="gap-2"
+          >
+            <Receipt className="h-4 w-4" />
+            View Payouts
+          </Button>
+          <Button
+            variant={hasBankDetails ? "outline" : "default"}
+            onClick={() => navigate({ to: "/pro-banking-details" })}
+            className="gap-2"
+          >
+            {hasBankDetails ? "View Banking Details" : "Add Banking Details"}
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Earnings */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="h-10 w-10 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
@@ -2405,32 +2573,26 @@ function Payments() {
           <p className="text-2xl font-bold text-emerald-500">{format(totalEarnings)}</p>
         </div>
 
-        {/* Total Withdrawal */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="h-10 w-10 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
               <ArrowDownCircle className="h-5 w-5 text-blue-500" />
             </div>
-            <p className="text-sm font-medium leading-tight">Total Withdrawal</p>
+            <p className="text-sm font-medium leading-tight">Released Payouts</p>
           </div>
-          <div className="flex items-center gap-3">
-            <p className="text-2xl font-bold">{format(0)}</p>
-            <Button size="sm" className="ml-auto">Withdraw</Button>
-          </div>
+          <p className="text-2xl font-bold">{format(totalReleased)}</p>
         </div>
 
-        {/* Total Remaining */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="h-10 w-10 rounded-lg bg-violet-500/15 flex items-center justify-center shrink-0">
               <Wallet className="h-5 w-5 text-violet-500" />
             </div>
-            <p className="text-sm font-medium leading-tight">Total Remaining</p>
+            <p className="text-sm font-medium leading-tight">In Escrow</p>
           </div>
-          <p className="text-2xl font-bold text-violet-500">{format(totalRemaining)}</p>
+          <p className="text-2xl font-bold text-violet-500">{format(Math.max(totalEscrow, 0))}</p>
         </div>
 
-        {/* Total Refunds */}
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="h-10 w-10 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
@@ -2450,36 +2612,49 @@ function Payments() {
           <h2 className="font-semibold">Recent Payments</h2>
         </div>
         <div className="p-5 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left">
-                {["Booking Ref.", "Client", "Trade Service", "Payment", "Payment Date", "Payment Method", "Refund", "Payment Status", "Actions"].map((h) => (
-                  <th key={h} className="py-2 pr-4 font-semibold text-primary whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p) => (
-                <tr key={p.ref} className="border-t border-border">
-                  <td className="py-3 pr-4 font-semibold">{p.ref}</td>
-                  <td className="pr-4">{p.client}</td>
-                  <td className="pr-4">{p.service}</td>
-                  <td className="pr-4 text-emerald-500 font-medium">{format(p.amount)}</td>
-                  <td className="pr-4 text-muted-foreground">{p.date}</td>
-                  <td className="pr-4">{p.method}</td>
-                  <td className="pr-4 text-red-500">{p.refund ? format(p.refund) : "–"}</td>
-                  <td className="pr-4">
-                    <span className={p.status === "paid" ? "text-emerald-500 font-medium" : "text-amber-500 font-medium"}>
-                      {p.status === "paid" ? "Paid" : "Refunded"}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="text-primary hover:underline text-sm">View</button>
-                  </td>
+          {loading ? (
+            <p className="text-sm text-muted-foreground text-center py-10">Loading payments…</p>
+          ) : payments.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-10">No payments yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left">
+                  {["Reference", "Payout Amount", "Date", "Refund", "Status", "Payout"].map((h) => (
+                    <th key={h} className="py-2 pr-4 font-semibold text-primary whitespace-nowrap">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {payments.map((p) => (
+                  <tr key={p.id} className="border-t border-border">
+                    <td className="py-3 pr-4 font-semibold font-mono text-xs">
+                      {p.booking_id ? `Booking ${p.booking_id.slice(0, 8)}` : `Order #${p.order_id}`}
+                    </td>
+                    <td className="pr-4 text-emerald-500 font-medium">{format(p.actual_payout_amount ?? p.estimated_payout_amount ?? 0)}</td>
+                    <td className="pr-4 text-muted-foreground">{new Date(p.created_at).toLocaleDateString("en-US")}</td>
+                    <td className="pr-4 text-red-500">{p.refunded_amount > 0 ? format(p.refunded_amount) : "–"}</td>
+                    <td className="pr-4">
+                      <span className={p.status === "succeeded" ? "text-emerald-500 font-medium" : "text-amber-500 font-medium"}>
+                        {p.status.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td className="pr-4">
+                      {(() => {
+                        const { text, tone } = getPayoutLabel(p);
+                        if (tone === "released") {
+                          return <span className="text-emerald-500 font-medium flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Released</span>;
+                        }
+                        const toneClass =
+                          tone === "failed" ? "text-red-500 font-medium" : tone === "escrow" ? "text-violet-500 font-medium" : "text-muted-foreground";
+                        return <span className={toneClass}>{text}</span>;
+                      })()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
@@ -2493,7 +2668,7 @@ function AllActivity() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [activities, setActivities] = useState<ActivityRecord[]>([]);
   const [activityStats, setActivityStats] = useState({
-    total: 0, reviews: 0, likes: 0, profileViews: 0,
+    total: 0, reviews: 0, likes: 0, unlikes: 0, profileViews: 0,
     bookings: 0, messages: 0, payments: 0, orders: 0,
   });
   const [loading, setLoading] = useState(true);
@@ -2517,7 +2692,7 @@ function AllActivity() {
     { id: "view" as const,   label: "Profile Views",  count: activityStats.profileViews, numberColor: "text-blue-400" },
   ];
 
-  const types  = ["all", "view", "like", "review", "message", "booking", "payment", "order", "refund_request"];
+  const types  = ["all", "view", "like", "unlike", "review", "message", "booking", "payment", "order", "refund_request"];
 
   const filtered = allItems.filter((item) => {
     if (activeFilter !== "all" && item.type !== activeFilter) return false;
@@ -2536,7 +2711,7 @@ function AllActivity() {
   return (
     <div className="space-y-4">
       {/* Stat filter cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {stats.map((s) => (
           <button
             key={s.id}
@@ -2645,6 +2820,7 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
   const [approving, setApproving] = useState(false);
   const [evidenceUrls, setEvidenceUrls] = useState<string[]>([]);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([fetchProOrders(), fetchProReturnRequests()])
@@ -2654,7 +2830,19 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
+
+  // A new order (INSERT) or a fulfillment/return-status change (UPDATE) live-refreshes this list.
+  useRealtimeTable({
+    enabled: !!userId,
+    table: "client_shopping",
+    filter: `tradesperson_id=eq.${userId}`,
+    onChange: () => {
+      fetchProOrders().then(setOrders).catch(() => {});
+    },
+  });
 
   const rrByOrder: Record<number, ReturnRequest> = {};
   for (const rr of returnRequests) {
@@ -2824,6 +3012,8 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
                         <img
                           src={item.imageUrl}
                           alt={item.serviceName || "Item"}
+                          loading="lazy"
+                          decoding="async"
                           className="h-10 w-10 rounded object-cover shrink-0 border border-border"
                         />
                       ) : (
@@ -2851,12 +3041,6 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
                   <div className="flex justify-between">
                     <span>Delivery fee</span>
                     <span>{format(order.shippingTotal)}</span>
-                  </div>
-                )}
-                {order.tax > 0 && (
-                  <div className="flex justify-between">
-                    <span>Tax</span>
-                    <span>{format(order.tax)}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-semibold text-foreground pt-1 border-t border-border">
@@ -2972,6 +3156,8 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
                       <img
                         src={url}
                         alt={`Evidence ${i + 1}`}
+                        loading="lazy"
+                        decoding="async"
                         className="h-20 w-20 rounded-lg object-cover border border-border hover:opacity-80 transition-opacity"
                       />
                     </a>
@@ -3041,9 +3227,16 @@ function MerchandiseOrders({ onBack }: { onBack: () => void }) {
 
 function Merchandise() {
   const { format } = useCurrency();
+  const { items: cachedItems, isLoading: loading, updateCache } = useMerchandise();
   const [showOrders, setShowOrders] = useState(false);
-  const [items, setItems] = useState<MerchandiseItemWithVariants[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItemsState] = useState<MerchandiseItemWithVariants[]>([]);
+  function setItems(updater: (prev: MerchandiseItemWithVariants[]) => MerchandiseItemWithVariants[]) {
+    setItemsState(updater);
+    updateCache(updater);
+  }
+  useEffect(() => {
+    setItemsState(cachedItems);
+  }, [cachedItems]);
 
   // ── Delivery fee ──────────────────────────────────────────
   const [deliveryFeeInput, setDeliveryFeeInput] = useState("");
@@ -3069,11 +3262,6 @@ function Merchandise() {
   const [variantEditDraft, setVariantEditDraft] = useState({ size: "", color: "", price: "", stock: "" });
 
   useEffect(() => {
-    fetchMerchandise()
-      .then(setItems)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-
     fetchMyDeliveryFee().then((fee) => {
       if (fee !== null) setDeliveryFeeInput(String(fee));
     });
@@ -3309,7 +3497,7 @@ function Merchandise() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold">Shop Merchandise</h2>
           <p className="text-sm text-muted-foreground mt-1">Manage and sell branded items to your clients.</p>
@@ -3381,7 +3569,7 @@ function Merchandise() {
               <div className="flex flex-wrap gap-3">
                 {newImagePreviews.map((src, idx) => (
                   <div key={idx} className="relative h-24 w-24 rounded-lg overflow-hidden border border-border">
-                    <img src={src} alt={`preview-${idx}`} className="h-full w-full object-cover" />
+                    <img src={src} alt={`preview-${idx}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     <button
                       type="button"
                       onClick={() => removeNewImage(idx)}
@@ -3457,7 +3645,7 @@ function Merchandise() {
                       <div className="flex flex-wrap gap-3">
                         {existingImages.map((img) => (
                           <div key={img.id} className="relative h-24 w-24 rounded-lg overflow-hidden border border-border">
-                            <img src={img.imageUrl} alt="product" className="h-full w-full object-cover" />
+                            <img src={img.imageUrl} alt="product" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                             <button
                               type="button"
                               onClick={() => removeExistingImage(img.id, img.imageUrl)}
@@ -3469,7 +3657,7 @@ function Merchandise() {
                         ))}
                         {editImagePreviews.map((src, idx) => (
                           <div key={`new-${idx}`} className="relative h-24 w-24 rounded-lg overflow-hidden border border-primary/40">
-                            <img src={src} alt={`new-${idx}`} className="h-full w-full object-cover" />
+                            <img src={src} alt={`new-${idx}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                             <button
                               type="button"
                               onClick={() => removeEditStagedImage(idx)}
@@ -3566,7 +3754,7 @@ function Merchandise() {
             <div key={item.id} className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="relative h-40 bg-muted flex items-center justify-center overflow-hidden">
                 {item.images.length > 0 ? (
-                  <img src={item.images[0].imageUrl} alt={item.productName} className="h-full w-full object-cover" />
+                  <img src={item.images[0].imageUrl} alt={item.productName} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                 ) : (
                   <Package className="h-16 w-16 text-muted-foreground/30" />
                 )}
@@ -3624,6 +3812,7 @@ const RESPONSE_TIME_OPTIONS = [
 
 function SettingsView() {
   const navigate = useNavigate();
+  const { profile, saveProfile } = useProProfile();
   const [profileData, setProfileData] = useState<EditProfileData | null>(null);
   const [saving, setSaving] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -3634,17 +3823,16 @@ function SettingsView() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [switchingToClient, setSwitchingToClient] = useState(false);
   const [confirmSwitchToClient, setConfirmSwitchToClient] = useState(false);
+
   useEffect(() => {
-    fetchProProfileData().then((data) => {
-      if (data) setProfileData(data);
-    });
-  }, []);
+    if (profile) setProfileData(profile);
+  }, [profile]);
 
   async function handleSave() {
     if (!profileData) return;
     setSaving(true);
     try {
-      await updateProProfileData(profileData);
+      await saveProfile(profileData);
       toast.success("Settings saved");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save settings");
@@ -3778,8 +3966,20 @@ function SettingsView() {
             <div className="space-y-2">
               <Label>Platform Fee</Label>
               <div className="flex items-center gap-2">
-                <Input value="12%" readOnly className="flex-1" />
-                <Info className="h-4 w-4 text-muted-foreground shrink-0 cursor-help" />
+                <Input value="14%" readOnly className="flex-1" />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-4 w-4 text-muted-foreground shrink-0 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p>
+                        The percentage TradeHub takes out of each completed booking or order before
+                        your payout is calculated. It covers payment processing, platform upkeep, and support.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
             <div className="space-y-2">
@@ -3787,15 +3987,19 @@ function SettingsView() {
               <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
                 <input type="checkbox" defaultChecked className="h-4 w-4 accent-blue-500 rounded cursor-pointer" />
                 <span className="text-sm font-medium flex-1">Stripe Payment Processing</span>
-                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Payout Methods</Label>
-              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-4 py-3">
-                <input type="checkbox" defaultChecked className="h-4 w-4 accent-blue-500 rounded cursor-pointer" />
-                <span className="text-sm font-medium flex-1">Payoneer Payouts</span>
-                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p>
+                        Client payments are securely processed through Stripe and held in escrow until your
+                        payout hold period clears, then released to your connected bank account.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
           </div>
@@ -3928,8 +4132,14 @@ function SettingsView() {
 /* ---------- Upload Work ---------- */
 
 function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
-  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    portfolios, isLoading: loading,
+    createPortfolio: createPortfolioMutation,
+    updatePortfolio: updatePortfolioMutation,
+    deletePortfolio: deletePortfolioMutation,
+    deletePortfolioMedia: deletePortfolioMediaMutation,
+    deletingId,
+  } = usePortfolios();
   const [showForm, setShowForm] = useState(false);
 
   const [title, setTitle] = useState("");
@@ -3938,7 +4148,6 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -3950,13 +4159,6 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    fetchPortfolios()
-      .then(setPortfolios)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
 
   function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
@@ -3992,13 +4194,7 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
     if (files.length === 0) { toast.error("Upload at least one file"); return; }
     setSubmitting(true);
     try {
-      const portfolio = await createPortfolio(title.trim(), description.trim(), category);
-      for (const file of files) {
-        const url = await uploadPortfolioMedia(file, portfolio.id);
-        const media = await savePortfolioMediaUrl(portfolio.id, url);
-        portfolio.media.push(media);
-      }
-      setPortfolios((prev) => [portfolio, ...prev]);
+      await createPortfolioMutation({ title: title.trim(), description: description.trim(), category, files });
       resetForm();
       toast.success("Portfolio uploaded!");
     } catch (err) {
@@ -4009,26 +4205,17 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
   }
 
   async function handleDeletePortfolio(portfolio: Portfolio) {
-    setDeletingId(portfolio.id);
     try {
-      await deletePortfolio(portfolio);
-      setPortfolios((prev) => prev.filter((p) => p.id !== portfolio.id));
+      await deletePortfolioMutation(portfolio);
       toast.success("Portfolio deleted");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
-    } finally {
-      setDeletingId(null);
     }
   }
 
   async function handleDeleteMedia(portfolioId: number, media: PortfolioMedia) {
     try {
-      await deletePortfolioMedia(media.id, media.mediaUrl);
-      setPortfolios((prev) =>
-        prev.map((p) =>
-          p.id === portfolioId ? { ...p, media: p.media.filter((m) => m.id !== media.id) } : p
-        )
-      );
+      await deletePortfolioMediaMutation({ portfolioId, media });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delete failed");
     }
@@ -4079,20 +4266,13 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
     if (!editTitle.trim()) { toast.error("Title is required"); return; }
     setEditSubmitting(true);
     try {
-      await updatePortfolio(portfolio.id, editTitle.trim(), editDescription.trim(), editCategory);
-      const newMedia: PortfolioMedia[] = [];
-      for (const file of editFiles) {
-        const url = await uploadPortfolioMedia(file, portfolio.id);
-        const media = await savePortfolioMediaUrl(portfolio.id, url);
-        newMedia.push(media);
-      }
-      setPortfolios((prev) =>
-        prev.map((p) =>
-          p.id === portfolio.id
-            ? { ...p, title: editTitle.trim(), description: editDescription.trim(), category: editCategory, media: [...p.media, ...newMedia] }
-            : p
-        )
-      );
+      await updatePortfolioMutation({
+        portfolio,
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        category: editCategory,
+        newFiles: editFiles,
+      });
       cancelEdit();
       toast.success("Portfolio updated!");
     } catch (err) {
@@ -4203,7 +4383,7 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
                         <span className="text-[10px] px-1 truncate w-full text-center">{files[idx].name}</span>
                       </div>
                     ) : (
-                      <img src={src} alt="" className="w-full h-full object-cover" />
+                      <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     )}
                     <button
                       type="button"
@@ -4261,7 +4441,7 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
                         preload="metadata"
                       />
                     ) : (
-                      <img src={m.mediaUrl} alt="" className="w-full h-full object-cover" />
+                      <img src={m.mediaUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     )}
                     <button
                       type="button"
@@ -4325,7 +4505,7 @@ function UploadWork({ tradeSpecialties }: { tradeSpecialties: string[] }) {
                               <Film className="h-5 w-5 text-muted-foreground" />
                             </div>
                           ) : (
-                            <img src={src} alt="" className="w-full h-full object-cover" />
+                            <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           )}
                           <button
                             type="button"

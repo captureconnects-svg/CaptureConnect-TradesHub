@@ -1,6 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useState, useEffect, useRef, type ComponentType, type ReactNode } from "react";
-import { ArrowLeft, Star, MapPin, BadgeCheck, Clock, Award, Calendar, MessageSquare, Heart, Share2, Briefcase, Users, TrendingUp, Camera, CheckCircle2, Zap, Send, Copy, Link as LinkIcon, ShoppingCart, Minus, Plus, Trash2, Eye, ChevronLeft, ChevronRight, Paperclip, X, FileText } from "lucide-react";
+import { ArrowLeft, Star, MapPin, BadgeCheck, Clock, Award, Calendar, MessageSquare, Heart, Share2, Briefcase, Users, TrendingUp, Camera, CheckCircle2, Zap, Send, Copy, Link as LinkIcon, ShoppingCart, Minus, Plus, Trash2, Eye, ChevronLeft, ChevronRight, Paperclip, X, FileText, Images } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,15 +19,16 @@ import { TRADESPEOPLE, CATEGORIES, type Tradesperson } from "@/lib/trades-data";
 import { useCurrency } from "@/lib/currency";
 import { useCart } from "@/lib/cart-context";
 import { fetchTraderCardData, type TraderCardData, type TraderProduct } from "@/backend/client-trader-profile";
-import { fetchClientLikes, toggleClientLike } from "@/backend/client-likes";
 import { logActivity } from "@/backend/pro-activity";
 import {
   submitClientReview,
   deleteClientReview,
-  fetchTraderReviews,
-  fetchTraderRatingStats,
   type ClientReview,
 } from "@/backend/client-reviews";
+import { useTraderCardData, TRADER_CARD_STALE_TIME } from "@/hooks/queries/useTraderCardData";
+import { useTraderReviews } from "@/hooks/queries/useReviews";
+import { useLikes } from "@/hooks/queries/useLikes";
+import { queryKeys } from "@/lib/query-keys";
 import { getTraderDisplayFlags, getTraderCartItems, getTraderItemCount, getTraderCartTotal } from "@/backend/client-trader-display-flags";
 import { fetchTraderConfirmedBookingDates } from "@/backend/client-bookings";
 import { supabase } from "@/lib/supabase";
@@ -35,8 +36,10 @@ import {
   getOrCreateConversation,
   fetchMessages,
   sendMessageWithFile,
+  resolveRealtimeMessage,
   type ConversationMessage,
 } from "@/backend/conversations";
+import { useRealtimeTable } from "@/hooks/useRealtimeTable";
 
 export const Route = createFileRoute("/client-dashboard/trader/$username")({
   validateSearch: (search: Record<string, unknown>): { preview?: boolean; from?: string } => {
@@ -50,7 +53,7 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
   // return null and incorrectly throw notFound(), replacing the rendered profile
   // with a blank dark screen.
   staleTime: 60_000,
-  loader: async ({ params }) => {
+  loader: async ({ params, context }) => {
     const slug = params.username;
 
     // Try static demo list first (uses id as the slug)
@@ -59,11 +62,12 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
 
     if (!pro) {
       const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const VISIBILITY_COLS = "id, full_name, username, location, about, profile_image, profile_visibility";
 
       // Try username match (case-insensitive — slugifyName lowercases the name for the URL)
       const { data: byUsername, error: usernameErr } = await supabase
         .from("tradesperson_profiles")
-        .select("id, full_name, username, location, about, profile_image")
+        .select(VISIBILITY_COLS)
         .ilike("username", slug)
         .maybeSingle();
 
@@ -76,7 +80,7 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
       if (!profileData && uuidRe.test(slug)) {
         const { data: byId, error: idErr } = await supabase
           .from("tradesperson_profiles")
-          .select("id, full_name, username, location, about, profile_image")
+          .select(VISIBILITY_COLS)
           .eq("id", slug)
           .maybeSingle();
         if (idErr && !byId) throw idErr;
@@ -87,7 +91,7 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
       if (!profileData) {
         const { data: byName, error: nameErr } = await supabase
           .from("tradesperson_profiles")
-          .select("id, full_name, username, location, about, profile_image")
+          .select(VISIBILITY_COLS)
           .ilike("full_name", slug.replace(/-/g, " "))
           .limit(1)
           .maybeSingle();
@@ -96,6 +100,15 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
       }
 
       if (!profileData) throw notFound();
+
+      // profile_visibility is nullable — never-touched rows stay visible (null
+      // treated as public); only an explicit "Private" hides the profile, and
+      // only from everyone but the pro themselves (so they can still preview
+      // their own profile via the "Preview Profile" button while private).
+      if (profileData.profile_visibility === false) {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData.user?.id !== profileData.id) throw notFound();
+      }
 
       tradespersonId = profileData.id as string;
 
@@ -139,7 +152,11 @@ export const Route = createFileRoute("/client-dashboard/trader/$username")({
     // LucideIcon function that is silently dropped by JSON serialisation and
     // causes a server/client hydration mismatch. The component resolves it
     // client-side from CATEGORIES using categorySlug.
-    const cardData = await fetchTraderCardData(tradespersonId);
+    const cardData = await context.queryClient.ensureQueryData({
+      queryKey: queryKeys.traderCard(tradespersonId),
+      queryFn: () => fetchTraderCardData(tradespersonId),
+      staleTime: TRADER_CARD_STALE_TIME,
+    });
     return { pro: pro!, cardData };
   },
   head: ({ loaderData }) => ({
@@ -269,9 +286,9 @@ function AvailabilityCalendar({ workingHours, confirmedBookings = [] }: {
       </h2>
       <p className="text-sm text-muted-foreground mb-5">See when this professional is available for bookings</p>
 
-      <div className="flex gap-4 items-start">
+      <div className="flex flex-col sm:flex-row gap-4 items-start">
         {/* Calendar grid */}
-        <div className="w-3/5 shrink-0">
+        <div className="w-full sm:w-3/5 shrink-0">
           <div className="flex items-center justify-between mb-4">
             <button
               type="button"
@@ -603,6 +620,7 @@ function SendMessageDialog({
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -615,6 +633,8 @@ function SendMessageDialog({
         setConvoId(id);
         const msgs = await fetchMessages(id);
         setMessages(msgs);
+        const { data } = await supabase.auth.getUser();
+        setUserId(data.user?.id ?? null);
       } catch {
         // not authenticated or network error
       } finally {
@@ -626,6 +646,20 @@ function SendMessageDialog({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Live-append the pro's replies while this dialog is open.
+  useRealtimeTable<{ id: number; convo_id: number; sender_id: string; content: string; created_at: string; file_url: string | null }>({
+    enabled: open && convoId !== null && !!userId,
+    table: "conversations_msg",
+    filter: `convo_id=eq.${convoId}`,
+    events: ["INSERT"],
+    onChange: (_event, row) => {
+      if (row.sender_id === userId) return; // own message already appended optimistically
+      resolveRealtimeMessage(row, userId!).then((msg) => {
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      });
+    },
+  });
 
   const handleSend = async () => {
     const text = input.trim();
@@ -655,6 +689,8 @@ function SendMessageDialog({
         <img
           src={fileUrl}
           alt="attachment"
+          loading="lazy"
+          decoding="async"
           className="max-w-[180px] rounded-lg border border-border mt-1"
         />
       );
@@ -889,6 +925,8 @@ function CartSheet({ open, onOpenChange, traderId }: { open: boolean; onOpenChan
                       <img
                         src={item.imageUrl}
                         alt={item.serviceName}
+                        loading="lazy"
+                        decoding="async"
                         className="h-12 w-12 rounded-lg object-cover shrink-0 border border-border"
                       />
                     ) : (
@@ -992,6 +1030,7 @@ function ImageSlider({
           key={idx}
           src={imgSrc}
           alt={`${alt} ${idx + 1}`}
+          decoding="async"
           className="h-full w-full object-cover"
           onError={() => setErrors((s) => { const n = new Set(s); n.add(idx); return n; })}
         />
@@ -1184,6 +1223,40 @@ function ProductDetailDialog({
   );
 }
 
+// ─── Portfolio Detail Dialog ──────────────────────────────────────────────────
+function PortfolioDetailDialog({
+  portfolio,
+  gradientIndex,
+  onClose,
+}: {
+  portfolio: TraderCardData["portfolios"][number];
+  gradientIndex: number;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
+        <div className="relative h-72 sm:h-80 shrink-0">
+          <ImageSlider
+            images={portfolio.media.map((m) => m.mediaUrl)}
+            alt={portfolio.title}
+            className="h-full w-full"
+            fallbackGradient={PORTFOLIO_GRADIENTS[gradientIndex % PORTFOLIO_GRADIENTS.length]}
+          />
+        </div>
+        <div className="p-5 space-y-2">
+          <DialogHeader>
+            <DialogTitle className="text-xl leading-tight">{portfolio.title}</DialogTitle>
+          </DialogHeader>
+          {portfolio.description && (
+            <p className="text-sm text-muted-foreground leading-relaxed">{portfolio.description}</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Delete Review Dialog ─────────────────────────────────────────────────────
 function DeleteReviewDialog({ reviewId, onDeleted }: { reviewId: number; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
@@ -1233,37 +1306,41 @@ function DeleteReviewDialog({ reviewId, onDeleted }: { reviewId: number; onDelet
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 function TraderProfilePage() {
-  const { pro, cardData } = Route.useLoaderData() as { pro: Tradesperson; cardData: TraderCardData };
+  const { pro, cardData: loaderCardData } = Route.useLoaderData() as { pro: Tradesperson; cardData: TraderCardData };
+  const { data: cardData = loaderCardData } = useTraderCardData(pro.id);
   const { preview: isPreview, from: fromSlug } = Route.useSearch();
   const category = CATEGORIES.find((c) => c.slug === pro.categorySlug);
   const displayCategory = (fromSlug ? CATEGORIES.find((c) => c.slug === fromSlug) : undefined) ?? category;
   const { format } = useCurrency();
   const { items: allCartItems } = useCart();
   const traderItemCount = getTraderItemCount(allCartItems, pro.id);
-  const [liked, setLiked] = useState(false);
-  const [likedCount, setLikedCount] = useState(0);
   const [showLikes, setShowLikes] = useState(false);
   const [selectedPkg, setSelectedPkg] = useState(0);
   const [cartOpen, setCartOpen] = useState(false);
   const [selectedProductIdx, setSelectedProductIdx] = useState<number | null>(null);
+  const [selectedPortfolioIdx, setSelectedPortfolioIdx] = useState<number | null>(null);
 
   const [clientId, setClientId] = useState<string | null>(null);
   const [viewerIsPro, setViewerIsPro] = useState(false);
-  const [dbReviews, setDbReviews] = useState<ClientReview[]>([]);
-  const [avgRating, setAvgRating] = useState(0);
-  const [reviewCount, setReviewCount] = useState(0);
-  const [reviewKey, setReviewKey] = useState(0);
   const [confirmedBookings, setConfirmedBookings] = useState<{ date: string; time: string }[]>([]);
 
+  const { liked: likedIds, toggleLike: toggleLikeMutation } = useLikes(clientId);
+  const liked = likedIds.includes(pro.id);
+  const likedCount = likedIds.length;
+
+  const {
+    reviews: dbReviews,
+    avgRating,
+    reviewCount,
+    refresh: refreshReviews,
+  } = useTraderReviews(pro.id);
+
   useEffect(() => {
-    async function loadLikeState() {
+    async function loadViewerState() {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return;
       const uid = authData.user.id;
       setClientId(uid);
-      const likes = await fetchClientLikes(uid);
-      setLiked(likes.includes(pro.id));
-      setLikedCount(likes.length);
       const { data: proProfile } = await supabase
         .from("tradesperson_profiles")
         .select("active_role")
@@ -1271,7 +1348,7 @@ function TraderProfilePage() {
         .maybeSingle();
       if (proProfile?.active_role === true) setViewerIsPro(true);
     }
-    loadLikeState();
+    loadViewerState();
   }, [pro.id]);
 
   useEffect(() => {
@@ -1298,28 +1375,23 @@ function TraderProfilePage() {
   }, [pro.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    async function loadReviews() {
-      const [fetched, stats] = await Promise.all([
-        fetchTraderReviews(pro.id),
-        fetchTraderRatingStats(pro.id),
-      ]);
-      setDbReviews(fetched);
-      setAvgRating(stats.avgRating);
-      setReviewCount(stats.totalReviews);
-    }
-    loadReviews();
-  }, [pro.id, reviewKey]);
-
-  useEffect(() => {
     fetchTraderConfirmedBookingDates(pro.id).then(setConfirmedBookings).catch(() => {});
   }, [pro.id]);
 
+  // Live-refresh the availability calendar if another client books/cancels
+  // while this profile page is open.
+  useRealtimeTable({
+    enabled: !!pro.id,
+    table: "client_bookings",
+    filter: `tradesperson_id=eq.${pro.id}`,
+    onChange: () => {
+      fetchTraderConfirmedBookingDates(pro.id).then(setConfirmedBookings).catch(() => {});
+    },
+  });
+
   const handleToggleLike = () => {
     if (!clientId || isPreview || viewerIsPro) return;
-    const nowLiked = !liked;
-    setLiked(nowLiked);
-    setLikedCount((n) => (nowLiked ? n + 1 : Math.max(0, n - 1)));
-    toggleClientLike(clientId, pro.id, !nowLiked);
+    toggleLikeMutation(pro.id, liked);
   };
 
   const flags = getTraderDisplayFlags(cardData.tradeSpecialties);
@@ -1443,7 +1515,7 @@ function TraderProfilePage() {
                   <WriteReviewDialog
                     name={cardData.username || cardData.fullName || pro.name}
                     tradespersonId={pro.id}
-                    onReviewSubmitted={() => setReviewKey((k) => k + 1)}
+                    onReviewSubmitted={() => refreshReviews()}
                     disabled={isPreview || viewerIsPro}
                   />
                   <button
@@ -1499,28 +1571,42 @@ function TraderProfilePage() {
                     <p className="text-sm text-muted-foreground">No portfolio items uploaded yet.</p>
                   </div>
                 ) : (
-                  <div className="space-y-6">
+                  <div
+                    className={`grid grid-cols-3 items-start gap-x-3 sm:gap-x-4 gap-y-5 sm:gap-y-6 ${cardData.portfolios.length > 6 ? "overflow-y-auto pr-1" : ""}`}
+                    style={cardData.portfolios.length > 6 ? { aspectRatio: "3 / 2" } : undefined}
+                  >
                     {cardData.portfolios.map((portfolio, pi) => (
-                      <div key={portfolio.id}>
-                        <div className="mb-2">
-                          <p className="font-semibold text-sm">{portfolio.title}</p>
-                          {portfolio.description && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{portfolio.description}</p>
-                          )}
-                        </div>
-                        {portfolio.media.length === 0 ? (
-                          <div className={`h-48 rounded-xl bg-gradient-to-br ${PORTFOLIO_GRADIENTS[pi % PORTFOLIO_GRADIENTS.length]} flex items-center justify-center`}>
+                      <button
+                        key={portfolio.id}
+                        type="button"
+                        onClick={() => setSelectedPortfolioIdx(pi)}
+                        className="group relative aspect-square rounded-xl overflow-hidden border border-border hover:border-primary/40 transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      >
+                        {portfolio.media[0]?.mediaUrl ? (
+                          <img
+                            src={portfolio.media[0].mediaUrl}
+                            alt={portfolio.title}
+                            loading="lazy"
+                            decoding="async"
+                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className={`h-full w-full bg-gradient-to-br ${PORTFOLIO_GRADIENTS[pi % PORTFOLIO_GRADIENTS.length]} flex items-center justify-center`}>
                             <Camera className="h-8 w-8 text-muted-foreground/40" />
                           </div>
-                        ) : (
-                          <ImageSlider
-                            images={portfolio.media.map((m) => m.mediaUrl)}
-                            alt={portfolio.title}
-                            className="h-56 rounded-xl border border-border"
-                            fallbackGradient={PORTFOLIO_GRADIENTS[pi % PORTFOLIO_GRADIENTS.length]}
-                          />
                         )}
-                      </div>
+                        {portfolio.media.length > 1 && (
+                          <div className="absolute top-2 right-2 text-white drop-shadow">
+                            <Images className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="absolute bottom-0 left-0 right-0 p-2.5 text-left opacity-0 group-hover:opacity-100 transition-opacity">
+                          <p className="text-white text-xs font-semibold leading-tight line-clamp-2">
+                            {portfolio.title}
+                          </p>
+                        </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -1541,7 +1627,10 @@ function TraderProfilePage() {
                 {cardData.products.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">No products listed yet.</p>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div
+                    className={`grid grid-cols-3 items-start gap-x-3 sm:gap-x-4 gap-y-5 sm:gap-y-6 ${cardData.products.length > 6 ? "overflow-y-auto pr-1" : ""}`}
+                    style={cardData.products.length > 6 ? { aspectRatio: "3 / 2" } : undefined}
+                  >
                     {cardData.products.map((product, i) => (
                         <button
                           key={product.id}
@@ -1553,6 +1642,8 @@ function TraderProfilePage() {
                             <img
                               src={product.image}
                               alt={product.name}
+                              loading="lazy"
+                              decoding="async"
                               className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
                             />
                           ) : (
@@ -1747,7 +1838,7 @@ function TraderProfilePage() {
                   proName={cardData.username || cardData.fullName || pro.name}
                   dbReviews={dbReviews}
                   currentClientId={clientId}
-                  onDeleteReview={() => setReviewKey((k) => k + 1)}
+                  onDeleteReview={() => refreshReviews()}
                 />
               </div>
               {reviews.length === 0 ? (
@@ -1777,7 +1868,7 @@ function TraderProfilePage() {
                           {isOwner && !isPreview && (
                             <DeleteReviewDialog
                               reviewId={dbReview.id}
-                              onDeleted={() => setReviewKey((k) => k + 1)}
+                              onDeleted={() => refreshReviews()}
                             />
                           )}
                         </div>
@@ -1858,6 +1949,16 @@ function TraderProfilePage() {
           traderInitials={pro.initials}
           onClose={() => setSelectedProductIdx(null)}
           cartDisabled={viewerIsPro}
+        />
+      )}
+
+      {/* Portfolio detail popup */}
+      {selectedPortfolioIdx !== null && cardData.portfolios[selectedPortfolioIdx] && (
+        <PortfolioDetailDialog
+          key={selectedPortfolioIdx}
+          portfolio={cardData.portfolios[selectedPortfolioIdx]}
+          gradientIndex={selectedPortfolioIdx}
+          onClose={() => setSelectedPortfolioIdx(null)}
         />
       )}
 

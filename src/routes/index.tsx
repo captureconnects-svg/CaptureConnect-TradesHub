@@ -1,15 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/lib/theme";
-import { CurrencySelect } from "@/lib/currency";
+import { CurrencySelect, useCurrency } from "@/lib/currency";
 import { FooterSection } from "@/components/trade/FooterSection";
+import { PublicMobileNav } from "@/components/trade/PublicMobileNav";
 import { TrendingUp, Users, Briefcase, ShieldCheck, ArrowRight, Star, CheckCircle2 } from "lucide-react";
 import heroImg from "@/assets/landing-client.png";
 import logoImg from "@/assets/logo-withoutBranding.png";
 import entrepreneurImg from "@/assets/pro-landing.png";
 import clientImg from "@/assets/client-landing.png";
-import { fetchPageStats, type PageStats } from "@/backend/landing-reviews";
+import { useLandingStats } from "@/hooks/queries/useLandingStats";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -35,15 +35,12 @@ const STAT_ICONS = [Users, TrendingUp, Briefcase, Star];
 const STAT_LABELS = ["Verified Tradespeople", "Trade Revenue Generated", "Jobs Completed", "Average Rating"];
 
 function Index() {
-  const [pageStats, setPageStats] = useState<PageStats | null>(null);
-
-  useEffect(() => {
-    fetchPageStats().then(setPageStats).catch(() => {});
-  }, []);
+  const { data: pageStats } = useLandingStats();
+  const { format } = useCurrency();
 
   const statValues = [
     pageStats?.verifiedPros ?? "—",
-    "—",
+    pageStats ? format(pageStats.tradeRevenueUSD, { compact: true, decimals: 1 }) : "—",
     pageStats?.jobsCompleted ?? "—",
     pageStats?.avgRating ?? "—",
   ];
@@ -72,6 +69,13 @@ function Index() {
           <div className="flex items-center gap-2">
             <CurrencySelect />
             <ThemeToggle />
+            <PublicMobileNav>
+              <a href="#clients" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">For Clients</a>
+              <a href="#pros" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">For Pros</a>
+              <Link to="/reviews" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Reviews</Link>
+              <Link to="/help" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Help Centre</Link>
+              <Link to="/contact" className="rounded-lg px-3 py-3 hover:bg-muted transition-colors">Contact</Link>
+            </PublicMobileNav>
           </div>
         </div>
       </header>
@@ -83,7 +87,8 @@ function Index() {
           alt="Skilled tradespeople working on a construction site"
           width={1920}
           height={1080}
-          className="absolute inset-0 h-gullw-full object-cover"
+          fetchPriority="high"
+          className="absolute inset-0 h-full w-full object-cover"
         />
         <div
           className="absolute inset-0"

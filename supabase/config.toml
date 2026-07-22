@@ -1,0 +1,64 @@
+
+[functions.stripe-webhook]
+enabled = true
+# Stripe calls this directly — there is no Supabase user JWT to verify.
+# The request is authenticated instead via the stripe-signature header,
+# checked against STRIPE_WEBHOOK_SECRET inside the function.
+verify_jwt = false
+import_map = "./functions/stripe-webhook/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/stripe-webhook/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/stripe-webhook/*.html" ]
+
+[functions.create-payment-intent]
+enabled = true
+# Only signed-in users may create a PaymentIntent — verify_jwt = true (the
+# default) rejects unauthenticated requests before they reach the function.
+verify_jwt = true
+entrypoint = "./functions/create-payment-intent/index.ts"
+
+[functions.create-connect-account]
+enabled = true
+# Only signed-in pros may start/resume Stripe Connect onboarding.
+verify_jwt = true
+entrypoint = "./functions/create-connect-account/index.ts"
+
+[functions.release-payout]
+enabled = true
+# Admin role is checked inside the function (against the `admin` table);
+# verify_jwt still rejects requests with no valid Supabase session at all.
+verify_jwt = true
+entrypoint = "./functions/release-payout/index.ts"
+
+[functions.issue-refund]
+enabled = true
+# Admin role is checked inside the function (against the `admin` table);
+# verify_jwt still rejects requests with no valid Supabase session at all.
+verify_jwt = true
+entrypoint = "./functions/issue-refund/index.ts"
+
+[functions.reconcile-pending-payments]
+enabled = true
+# Callable by an admin session OR a x-cron-secret header (see the function's
+# header comment) — both paths are checked inside the function, so JWT
+# verification is left off here to allow the cron-secret path through.
+verify_jwt = false
+entrypoint = "./functions/reconcile-pending-payments/index.ts"
+
+[functions.cleanup-abandoned-orders]
+enabled = true
+# Same dual admin-session / x-cron-secret auth as reconcile-pending-payments
+# (checked inside the function) — JWT verification is left off here to allow
+# the cron-secret path through.
+verify_jwt = false
+entrypoint = "./functions/cleanup-abandoned-orders/index.ts"
+
+[functions.delete-user-account]
+enabled = true
+# Admin role is checked inside the function (against the `admin` table);
+# verify_jwt still rejects requests with no valid Supabase session at all.
+verify_jwt = true
+entrypoint = "./functions/delete-user-account/index.ts"

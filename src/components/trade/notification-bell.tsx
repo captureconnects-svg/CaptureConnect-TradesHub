@@ -14,6 +14,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import type { Notification } from "@/backend/notifications";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
+import { useCurrency } from "@/lib/currency";
 
 const TYPE_COLORS: Record<Notification["type"], string> = {
   booking: "bg-blue-500",
@@ -25,6 +26,17 @@ const TYPE_COLORS: Record<Notification["type"], string> = {
   auth: "bg-slate-500",
 };
 
+// Notification text is stored with USD amounts baked in (e.g. "Payment of $150.00 ...").
+// Re-render any "$1,234.56" substrings in the user's selected currency.
+const USD_AMOUNT_PATTERN = /\$([\d,]+(?:\.\d{1,2})?)/g;
+
+function localizeMessage(message: string, format: (amountUSD: number) => string): string {
+  return message.replace(USD_AMOUNT_PATTERN, (match, digits: string) => {
+    const amountUSD = Number(digits.replace(/,/g, ""));
+    return Number.isFinite(amountUSD) ? format(amountUSD) : match;
+  });
+}
+
 function NotificationItem({
   notification,
   onRead,
@@ -32,6 +44,7 @@ function NotificationItem({
   notification: Notification;
   onRead: (id: string, link: string | null) => void;
 }) {
+  const { format } = useCurrency();
   return (
     <button
       onClick={() => onRead(notification.id, notification.link)}
@@ -57,7 +70,7 @@ function NotificationItem({
           {notification.title}
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
-          {notification.message}
+          {localizeMessage(notification.message, format)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground/60">
           {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
@@ -107,7 +120,7 @@ export function NotificationBell() {
 
       <PopoverContent
         align="end"
-        className="w-80 p-0 shadow-lg"
+        className="w-[calc(100vw-2rem)] max-w-80 p-0 shadow-lg"
         sideOffset={8}
       >
         {/* Header */}

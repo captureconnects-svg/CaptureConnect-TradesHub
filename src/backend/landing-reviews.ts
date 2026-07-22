@@ -90,27 +90,27 @@ export type PageStats = {
   jobsCompleted: string;
   satisfactionRate: string;
   verifiedPros: string;
+  tradeRevenueUSD: number;
 };
 
 export async function fetchPageStats(): Promise<PageStats> {
+  // Jobs completed, verified pros, and trade revenue are aggregated via
+  // SECURITY DEFINER RPCs (see supabase/landing_page_public_stats.sql and
+  // payments_public_revenue_total.sql) because the underlying tables
+  // (client_bookings, client_shopping, tradesperson_profiles, payments) no
+  // longer grant anon/blanket SELECT — only owner/admin/related-party
+  // policies — so a direct table query returns 0 rows for anonymous
+  // landing-page visitors.
   const [
     { data: clientRatings },
-    { count: completedBookings },
-    { count: deliveredOrders },
-    { count: proCount },
+    { data: totalJobsRaw },
+    { data: proCountRaw },
+    { data: tradeRevenueRaw },
   ] = await Promise.all([
     supabase.from("client_reviews").select("review_rating"),
-    supabase
-      .from("client_bookings")
-      .select("id", { count: "exact", head: true })
-      .eq("booking_status", "completed"),
-    supabase
-      .from("client_shopping")
-      .select("id", { count: "exact", head: true })
-      .eq("isDelivered", true),
-    supabase
-      .from("tradesperson_profiles")
-      .select("id", { count: "exact", head: true }),
+    supabase.rpc("get_total_jobs_completed"),
+    supabase.rpc("get_total_verified_pros"),
+    supabase.rpc("get_total_trade_revenue"),
   ]);
 
   // Average rating from client_reviews
@@ -124,7 +124,7 @@ export async function fetchPageStats(): Promise<PageStats> {
     : "—";
 
   // Jobs completed: completed bookings + delivered orders
-  const totalJobs = (completedBookings ?? 0) + (deliveredOrders ?? 0);
+  const totalJobs = Number(totalJobsRaw ?? 0);
   const jobsCompleted =
     totalJobs >= 1000
       ? `${(totalJobs / 1000).toFixed(1)}K+`
@@ -139,11 +139,13 @@ export async function fetchPageStats(): Promise<PageStats> {
       : "—";
 
   // Verified pros: total tradesperson_profiles
-  const totalPros = proCount ?? 0;
+  const totalPros = Number(proCountRaw ?? 0);
   const verifiedPros =
     totalPros >= 1000
       ? `${(totalPros / 1000).toFixed(1)}K+`
       : `${totalPros}`;
 
-  return { avgRating, jobsCompleted, satisfactionRate, verifiedPros };
+  const tradeRevenueUSD = Number(tradeRevenueRaw ?? 0);
+
+  return { avgRating, jobsCompleted, satisfactionRate, verifiedPros, tradeRevenueUSD };
 }

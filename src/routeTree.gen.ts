@@ -12,8 +12,12 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ReviewsRouteImport } from './routes/reviews'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ProVerificationRouteImport } from './routes/pro-verification'
+import { Route as ProPayoutsRouteImport } from './routes/pro-payouts'
 import { Route as ProLoginSignupRouteImport } from './routes/pro-login-signup'
 import { Route as ProDashboardRouteImport } from './routes/pro-dashboard'
+import { Route as ProBankingDetailsRouteImport } from './routes/pro-banking-details'
+import { Route as Mgmt7e04a265RouteImport } from './routes/mgmt-7e04a265'
+import { Route as Mgmt3d856e45RouteImport } from './routes/mgmt-3d856e45'
 import { Route as HelpRouteImport } from './routes/help'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as ContactRouteImport } from './routes/contact'
@@ -51,6 +55,11 @@ const ProVerificationRoute = ProVerificationRouteImport.update({
   path: '/pro-verification',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProPayoutsRoute = ProPayoutsRouteImport.update({
+  id: '/pro-payouts',
+  path: '/pro-payouts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProLoginSignupRoute = ProLoginSignupRouteImport.update({
   id: '/pro-login-signup',
   path: '/pro-login-signup',
@@ -59,6 +68,21 @@ const ProLoginSignupRoute = ProLoginSignupRouteImport.update({
 const ProDashboardRoute = ProDashboardRouteImport.update({
   id: '/pro-dashboard',
   path: '/pro-dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProBankingDetailsRoute = ProBankingDetailsRouteImport.update({
+  id: '/pro-banking-details',
+  path: '/pro-banking-details',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Mgmt7e04a265Route = Mgmt7e04a265RouteImport.update({
+  id: '/mgmt-7e04a265',
+  path: '/mgmt-7e04a265',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Mgmt3d856e45Route = Mgmt3d856e45RouteImport.update({
+  id: '/mgmt-3d856e45',
+  path: '/mgmt-3d856e45',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HelpRoute = HelpRouteImport.update({
@@ -182,8 +206,12 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/help': typeof HelpRoute
+  '/mgmt-3d856e45': typeof Mgmt3d856e45Route
+  '/mgmt-7e04a265': typeof Mgmt7e04a265Route
+  '/pro-banking-details': typeof ProBankingDetailsRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
+  '/pro-payouts': typeof ProPayoutsRoute
   '/pro-verification': typeof ProVerificationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/reviews': typeof ReviewsRoute
@@ -209,8 +237,12 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/help': typeof HelpRoute
+  '/mgmt-3d856e45': typeof Mgmt3d856e45Route
+  '/mgmt-7e04a265': typeof Mgmt7e04a265Route
+  '/pro-banking-details': typeof ProBankingDetailsRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
+  '/pro-payouts': typeof ProPayoutsRoute
   '/pro-verification': typeof ProVerificationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/reviews': typeof ReviewsRoute
@@ -238,8 +270,12 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/help': typeof HelpRoute
+  '/mgmt-3d856e45': typeof Mgmt3d856e45Route
+  '/mgmt-7e04a265': typeof Mgmt7e04a265Route
+  '/pro-banking-details': typeof ProBankingDetailsRoute
   '/pro-dashboard': typeof ProDashboardRoute
   '/pro-login-signup': typeof ProLoginSignupRoute
+  '/pro-payouts': typeof ProPayoutsRoute
   '/pro-verification': typeof ProVerificationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/reviews': typeof ReviewsRoute
@@ -268,8 +304,12 @@ export interface FileRouteTypes {
     | '/contact'
     | '/forgot-password'
     | '/help'
+    | '/mgmt-3d856e45'
+    | '/mgmt-7e04a265'
+    | '/pro-banking-details'
     | '/pro-dashboard'
     | '/pro-login-signup'
+    | '/pro-payouts'
     | '/pro-verification'
     | '/reset-password'
     | '/reviews'
@@ -295,8 +335,12 @@ export interface FileRouteTypes {
     | '/contact'
     | '/forgot-password'
     | '/help'
+    | '/mgmt-3d856e45'
+    | '/mgmt-7e04a265'
+    | '/pro-banking-details'
     | '/pro-dashboard'
     | '/pro-login-signup'
+    | '/pro-payouts'
     | '/pro-verification'
     | '/reset-password'
     | '/reviews'
@@ -323,8 +367,12 @@ export interface FileRouteTypes {
     | '/contact'
     | '/forgot-password'
     | '/help'
+    | '/mgmt-3d856e45'
+    | '/mgmt-7e04a265'
+    | '/pro-banking-details'
     | '/pro-dashboard'
     | '/pro-login-signup'
+    | '/pro-payouts'
     | '/pro-verification'
     | '/reset-password'
     | '/reviews'
@@ -352,8 +400,12 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   HelpRoute: typeof HelpRoute
+  Mgmt3d856e45Route: typeof Mgmt3d856e45Route
+  Mgmt7e04a265Route: typeof Mgmt7e04a265Route
+  ProBankingDetailsRoute: typeof ProBankingDetailsRoute
   ProDashboardRoute: typeof ProDashboardRoute
   ProLoginSignupRoute: typeof ProLoginSignupRoute
+  ProPayoutsRoute: typeof ProPayoutsRoute
   ProVerificationRoute: typeof ProVerificationRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ReviewsRoute: typeof ReviewsRoute
@@ -382,6 +434,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProVerificationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/pro-payouts': {
+      id: '/pro-payouts'
+      path: '/pro-payouts'
+      fullPath: '/pro-payouts'
+      preLoaderRoute: typeof ProPayoutsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pro-login-signup': {
       id: '/pro-login-signup'
       path: '/pro-login-signup'
@@ -394,6 +453,27 @@ declare module '@tanstack/react-router' {
       path: '/pro-dashboard'
       fullPath: '/pro-dashboard'
       preLoaderRoute: typeof ProDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pro-banking-details': {
+      id: '/pro-banking-details'
+      path: '/pro-banking-details'
+      fullPath: '/pro-banking-details'
+      preLoaderRoute: typeof ProBankingDetailsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt-7e04a265': {
+      id: '/mgmt-7e04a265'
+      path: '/mgmt-7e04a265'
+      fullPath: '/mgmt-7e04a265'
+      preLoaderRoute: typeof Mgmt7e04a265RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mgmt-3d856e45': {
+      id: '/mgmt-3d856e45'
+      path: '/mgmt-3d856e45'
+      fullPath: '/mgmt-3d856e45'
+      preLoaderRoute: typeof Mgmt3d856e45RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/help': {
@@ -590,8 +670,12 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   HelpRoute: HelpRoute,
+  Mgmt3d856e45Route: Mgmt3d856e45Route,
+  Mgmt7e04a265Route: Mgmt7e04a265Route,
+  ProBankingDetailsRoute: ProBankingDetailsRoute,
   ProDashboardRoute: ProDashboardRoute,
   ProLoginSignupRoute: ProLoginSignupRoute,
+  ProPayoutsRoute: ProPayoutsRoute,
   ProVerificationRoute: ProVerificationRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ReviewsRoute: ReviewsRoute,
