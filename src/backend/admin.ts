@@ -11,6 +11,9 @@ import {
   buildRefundInitiatedEmail,
   sendNotificationEmail,
 } from "@/backend/notification-emails";
+import { buildPayoutReceiptEmail } from "@/backend/email-templates";
+import type { BankDetails } from "@/backend/pro-banking";
+import type { PayoutReceipt } from "@/lib/payments/types";
 
 const ALLOWED_ROLES = ["admin", "super_admin"] as const;
 type AdminRole = (typeof ALLOWED_ROLES)[number];
@@ -1749,4 +1752,189 @@ export async function markPayoutPaid(
 ): Promise<void> {
   await requireAdminRole();
   await logAdminAction("mark_payout_paid", "payout", { payoutId, amount, recipientName });
+}
+
+// ─── Payout Receipts (Stripe Connect manual-transfer confirmation) ────────────
+
+export type AdminProBankDetails = BankDetails | null;
+
+/** Admin-only: a specific pro's banking/transfer details — RLS ("Admins can view all banking details") scopes this. */
+export async function fetchAdminProBankDetails(proId: string): Promise<AdminProBankDetails> {
+  await requireAdminRole();
+  const { data, error } = await supabase
+    .from("tradesperson_banking_details")
+    .select("full_name, name_of_bank, bank_branch, account_type, account_number, home_address, phone, country, currency")
+    .eq("tradesperson_id", proId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+
+  return {
+    fullName: String(data.full_name ?? ""),
+    nameOfBank: String(data.name_of_bank ?? ""),
+    bankBranch: String(data.bank_branch ?? ""),
+    accountType: String(data.account_type ?? ""),
+    accountNumber: data.account_number != null ? String(data.account_number) : "",
+    homeAddress: String(data.home_address ?? ""),
+    phone: String(data.phone ?? ""),
+    country: String(data.country ?? ""),
+    currency: String(data.currency ?? ""),
+  };
+}
+
+/** Admin-only: pre-allocates a receipt/payout number pair before the payout_receipts row exists (see next_payout_receipt_numbers() in payout_receipts_extend.sql) — needed because the generated PDF must print the numbers before it's uploaded. */
+export async function allocatePayoutReceiptNumbers(): Promise<{ receiptNumber: string; payoutNumber: string }> {
+  await requireAdminRole();
+  const { data, error } = await supabase.rpc("next_payout_receipt_numbers");
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row?.receipt_number || !row?.payout_number) {
+    throw new Error("Failed to allocate receipt numbers.");
+  }
+  return { receiptNumber: row.receipt_number as string, payoutNumber: row.payout_number as string };
+}
+
+const PAYOUT_RECEIPT_ALLOWED_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "application/pdf": "pdf",
+};
+
+async function uploadPayoutReceiptFile(bucket: string, proId: string, file: File | Blob, fileName?: string): Promise<string> {
+  const type = "type" in file ? file.type : "application/pdf";
+  const ext = PAYOUT_RECEIPT_ALLOWED_TYPES[type] ?? (type === "application/pdf" ? "pdf" : null);
+  if (!ext) throw new Error("Unsupported file type. Allowed: JPEG, PNG, WebP, or PDF.");
+  const path = `${proId}/${fileName ?? Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from(bucket)
+    .upload(path, file, { upsert: true, contentType: type || "application/octet-stream" });
+  if (error) throw new Error(error.message || "File upload failed");
+  return path;
+}
+
+/**
+ * Admin-only: marks a pro's escrow-cleared payments as paid out via manual
+ * transfer, generates the official TradeHub payout receipt, uploads both the
+ * admin's raw proof-of-transfer and the generated PDF, records the
+ * payout_receipts row, and emails the pro their receipt. The payments
+ * themselves must already have been released — see releaseManualPayout() —
+ * this only records the transfer confirmation and receipt.
+ */
+export async function confirmPayoutTransfer(params: {
+  proId: string;
+  proEmail: string;
+  proName: string;
+  amount: number;
+  currency: string;
+  paymentIds: string[];
+  receiptNumber: string;
+  payoutNumber: string;
+  transferMethod: string;
+  transferReference: string;
+  transferDate: string;
+  expectedDelivery: string;
+  adminNotes: string;
+  adminOriginalFile: File;
+  receiptPdfBlob: Blob;
+}): Promise<void> {
+  await requireAdminRole();
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const uploadedBy = session?.user?.id ?? null;
+
+  const [adminReceiptPath, generatedReceiptPath] = await Promise.all([
+    uploadPayoutReceiptFile("payout_admin_receipts", params.proId, params.adminOriginalFile),
+    uploadPayoutReceiptFile("payout_receipts", params.proId, params.receiptPdfBlob, `${Date.now()}-receipt`),
+  ]);
+
+  const { error } = await supabase.from("payout_receipts").insert({
+    tradesperson_id: params.proId,
+    uploaded_by: uploadedBy,
+    amount: params.amount,
+    currency: params.currency,
+    status: "Completed",
+    receipt_number: params.receiptNumber,
+    payout_number: params.payoutNumber,
+    transfer_method: params.transferMethod,
+    transfer_reference: params.transferReference || null,
+    transfer_date: params.transferDate,
+    expected_delivery: params.expectedDelivery || null,
+    admin_notes: params.adminNotes || null,
+    file_path: generatedReceiptPath,
+    admin_receipt_records: adminReceiptPath,
+    is_generated_receipt: true,
+    payment_ids: params.paymentIds,
+  });
+  if (error) throw new Error(error.message);
+
+  await logAdminAction("confirm_payout_transfer", "payout", {
+    proId: params.proId,
+    amount: params.amount,
+    receiptNumber: params.receiptNumber,
+    payoutNumber: params.payoutNumber,
+    paymentIds: params.paymentIds,
+  });
+
+  const formattedAmount = new Intl.NumberFormat("en-US", { style: "currency", currency: params.currency }).format(params.amount);
+  await notify({
+    userId: params.proId,
+    userEmail: params.proEmail,
+    title: "Your payout has been sent",
+    message: `${formattedAmount} has been transferred to you — receipt ${params.receiptNumber}.`,
+    type: "payment",
+    emailHtml: buildPayoutReceiptEmail(
+      params.proName,
+      formattedAmount,
+      params.transferMethod,
+      params.transferReference,
+      params.transferDate,
+      params.receiptNumber,
+    ),
+    emailSubject: "Your payout has been sent — Capture Connect",
+  }).catch(() => {});
+}
+
+export interface PayoutReceiptAdminRecord extends PayoutReceipt {
+  /** Signed URL (1 hour) into the admin-only payout_admin_receipts bucket — null if missing or signing failed. */
+  adminReceiptUrl: string | null;
+  /** Signed URL (1 hour) into the payout_receipts bucket for the generated PDF — null if missing or signing failed. */
+  generatedReceiptUrl: string | null;
+}
+
+/** Admin-only: all payout receipts recorded for a specific pro, newest first, with signed URLs for both files. */
+export async function fetchAdminPayoutReceipts(proId: string): Promise<PayoutReceiptAdminRecord[]> {
+  await requireAdminRole();
+  const { data, error } = await supabase
+    .from("payout_receipts")
+    .select("*")
+    .eq("tradesperson_id", proId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as PayoutReceipt[];
+  return Promise.all(
+    rows.map(async (r) => {
+      let adminReceiptUrl: string | null = null;
+      if (r.admin_receipt_records) {
+        const { data: signed } = await supabase.storage
+          .from("payout_admin_receipts")
+          .createSignedUrl(r.admin_receipt_records, 3600);
+        adminReceiptUrl = signed?.signedUrl ?? null;
+      }
+
+      let generatedReceiptUrl: string | null = null;
+      if (r.is_generated_receipt && r.file_path) {
+        const { data: signed } = await supabase.storage
+          .from("payout_receipts")
+          .createSignedUrl(r.file_path, 3600);
+        generatedReceiptUrl = signed?.signedUrl ?? null;
+      }
+
+      return { ...r, adminReceiptUrl, generatedReceiptUrl };
+    }),
+  );
 }

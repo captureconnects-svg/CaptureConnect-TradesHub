@@ -189,6 +189,32 @@ export async function fetchMessages(convoId: number): Promise<ConversationMessag
   return messagesWithUrls;
 }
 
+// Resolves a raw realtime row (from the conversations_msg subscription) into a
+// ConversationMessage, signing the file URL if it's a stored path.
+export async function resolveRealtimeMessage(
+  row: { id: number; convo_id: number; sender_id: string; content: string; created_at: string; file_url: string | null },
+  uid: string,
+): Promise<ConversationMessage> {
+  const SIGNED_URL_EXPIRY = 3600;
+  let fileUrl = row.file_url;
+  if (fileUrl && !fileUrl.startsWith("http")) {
+    const { data: signed } = await supabase.storage
+      .from("conversations")
+      .createSignedUrl(fileUrl, SIGNED_URL_EXPIRY);
+    fileUrl = signed?.signedUrl ?? null;
+  }
+
+  return {
+    id: row.id,
+    convoId: row.convo_id,
+    senderId: row.sender_id,
+    content: row.content,
+    createdAt: row.created_at,
+    isOwn: row.sender_id === uid,
+    fileUrl,
+  };
+}
+
 export async function sendMessage(params: {
   convoId: number;
   content: string;
